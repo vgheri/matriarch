@@ -95,16 +95,22 @@ func (p *Proxy) readClientConn(msgChan chan pgproto3.FrontendMessage, nextChan c
 		return
 	}
 
+	if _, ok := startupMessage.(*pgproto3.SSLRequest); ok {
+		_, err = p.frontendConn.Write([]byte("N"))
+		if err != nil {
+			fmt.Printf("error sending deny SSL request: %w", err)
+		}
+		p.readClientConn(msgChan, nextChan, errChan)
+	}
+
 	msgChan <- startupMessage
 	<-nextChan
-
 	for {
 		msg, err := p.backend.Receive()
 		if err != nil {
 			errChan <- err
 			return
 		}
-
 		msgChan <- msg
 		<-nextChan
 	}
@@ -117,9 +123,7 @@ func (p *Proxy) readServerConn(msgChan chan pgproto3.BackendMessage, nextChan ch
 			errChan <- err
 			return
 		}
-
 		msgChan <- msg
-
 		<-nextChan
 	}
 }

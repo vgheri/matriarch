@@ -1,0 +1,58 @@
+{
+  "backends": ["localhost:5432", "localhost:5433"],
+  "keyspace": "ecommerce",
+  "tables": [
+    {
+      "name": "members",
+      "type": "sharded",
+      "vindexes": [
+        {
+          "columns": ["id"],
+          "type": "primary"
+        },
+        {
+          "columns": ["email"],
+          "type": "secondary"
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "type": "sharded",
+      "vindexes": [
+        {
+          "columns": ["id"],
+          "type": "primary"
+        }
+      ]
+    },
+    {
+      "name": "order_item",
+      "type": "sharded",
+      "vindexes": [
+        {
+          "columns": ["order_id"],
+          "type": "primary"
+        }
+      ]
+    },
+    {
+      "name": "product",
+      "type": "sharded",
+      "vindexes": [
+        {
+          "columns": ["id"],
+          "name": "primary"
+        },
+        {
+          "columns": ["ean"],
+          "name": "secondary"
+        }
+      ]
+    },
+    {
+      "name": "categories",
+      "type": "reference"
+    }
+  ]
+}

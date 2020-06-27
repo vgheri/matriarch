@@ -1,0 +1,29 @@
+{
+  "keyspace": "$keyspace_name",
+  "tables": [
+    {
+      "name": "$table_name",
+      "type": "sharded|reference", // only one of the two must be set
+      "vindexes": [
+        {
+          "columns": [
+            "$column_names" // comma separated list of columns, order matters
+          ],
+          "references": {
+            // only for primary vindexes
+            "column": "$column_name_part_of_vindex"
+            "external_table": "$other_table_name",
+            "external_column": "$other_column_name"
+          },
+          "type": "primary" // Only for sharded tables. The primary vindex must be set and there can be only one.
+        },
+        {
+          "columns": [
+            "$column_names" // comma separated list of columns, order matters
+          ],
+          "type": "secondary" // Only for sharded tables. 0 or more secondary indexes can be set
+        }
+      ]
+    }
+  ]
+}
