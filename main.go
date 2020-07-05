@@ -3,16 +3,17 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
-	"net"
-	"os"
 
-	"github.com/vgheri/matriarch/proxy"
+	// "log"
+	// "net"
+	"os"
+	// "github.com/vgheri/matriarch/proxy"
 )
 
 var options struct {
-	listenAddress string
-	remoteAddress string
+	listenAddress   string
+	hosts           string
+	vschemaFilePath string
 }
 
 func main() {
@@ -22,32 +23,39 @@ func main() {
 	}
 
 	flag.StringVar(&options.listenAddress, "listen", "127.0.0.1:15432", "Proxy listen address")
-	flag.StringVar(&options.remoteAddress, "remote", "127.0.0.1:5432", "Remote PostgreSQL server address")
+	flag.StringVar(&options.hosts, "hosts", "127.0.0.1:5432,127.0.0.1:5433", "Comma separated list of PostgreSQL server addresses")
+	flag.StringVar(&options.vschemaFilePath, "vschema", "vschema.json", "Vschema file path")
 	flag.Parse()
 
-	ln, err := net.Listen("tcp", options.listenAddress)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// read vschema file
+	// vschema, err := readVschemaFile(options.vschemaFilePath)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
-	clientConn, err := ln.Accept()
-	if err != nil {
-		log.Fatal(err)
-	}
+	// ln, err := net.Listen("tcp", options.listenAddress)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
-	listenNetwork := "tcp"
-	if _, err := os.Stat(options.remoteAddress); err == nil {
-		listenNetwork = "unix"
-	}
+	// clientConn, err := ln.Accept()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
-	serverConn, err := net.Dial(listenNetwork, options.remoteAddress)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// listenNetwork := "tcp"
+	// if _, err := os.Stat(options.remoteAddress); err == nil {
+	// 	listenNetwork = "unix"
+	// }
 
-	proxy := proxy.NewProxy(clientConn, serverConn)
-	err = proxy.Run()
-	if err != nil {
-		log.Fatal(err)
-	}
+	// serverConn, err := net.Dial(listenNetwork, options.remoteAddress)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// proxy := proxy.NewProxy(clientConn, serverConn)
+	// err = proxy.Run()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 }
