@@ -3,9 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
+	"strings"
 
 	// "log"
-	// "net"
 	"os"
 	// "github.com/vgheri/matriarch/proxy"
 )
@@ -23,32 +24,37 @@ func main() {
 	}
 
 	flag.StringVar(&options.listenAddress, "listen", "127.0.0.1:15432", "Proxy listen address")
-	flag.StringVar(&options.hosts, "hosts", "127.0.0.1:5432,127.0.0.1:5433", "Comma separated list of PostgreSQL server addresses")
+	flag.StringVar(&options.hosts, "hosts", "localhost:5432,localhost:5433", "Comma separated list of PostgreSQL server addresses, without empty spaces")
 	flag.StringVar(&options.vschemaFilePath, "vschema", "vschema.json", "Vschema file path")
 	flag.Parse()
 
 	// read vschema file
-	// vschema, err := readVschemaFile(options.vschemaFilePath)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+	vschema, err := readVschemaFile(options.vschemaFilePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	hosts := strings.Split(options.hosts, ",")
+	// 1. Create the cluster, opening a TCP connection with each shard
+	cluster, err := NewCluster(vschema.Keyspace, hosts)
+	if err != nil {
+		log.Fatalf("Couldn't create new Matriarch cluster: %v", err)
+	}
+	for i, s := range cluster.Shards {
+		fmt.Printf("%d - %s - %s\n", i, s.Host, s.Name)
+	}
+
+	// 3. Start accepting connections from clients
+	// 4. For each incoming client connection, parse the query to identify the shard(s) involved and create a proxy for each backend involved, then send the query
+	// 5. Retrieve result and send it back to the client
 
 	// ln, err := net.Listen("tcp", options.listenAddress)
 	// if err != nil {
 	// 	log.Fatal(err)
 	// }
 
+	// // TODO this should be inside a goroutine
 	// clientConn, err := ln.Accept()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// listenNetwork := "tcp"
-	// if _, err := os.Stat(options.remoteAddress); err == nil {
-	// 	listenNetwork = "unix"
-	// }
-
-	// serverConn, err := net.Dial(listenNetwork, options.remoteAddress)
 	// if err != nil {
 	// 	log.Fatal(err)
 	// }

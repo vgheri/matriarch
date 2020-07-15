@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgconn"
 )
 
 type Cluster struct {
@@ -13,10 +17,10 @@ type Cluster struct {
 
 type Shard struct {
 	Host          string
-	Port          int
 	Name          string
-	keyspaceStart uint64
-	keyspaceEnd   uint64
+	KeyspaceStart uint64
+	KeyspaceEnd   uint64
+	Conn          *pgconn.PgConn
 }
 
 const defaultPostgreSQLPort = 5432
@@ -24,26 +28,41 @@ const defaultPostgreSQLPort = 5432
 var ErrBadHost = errors.New("bad host configuration, please specify host:port")
 var ErrShardCount = errors.New("shard count must be a power of two")
 
-func buildCluster(keyspaceName string, hosts []string) (*Cluster, error) {
+func NewCluster(keyspaceName string, hosts []string) (*Cluster, error) {
+	shards, err := buildShards(keyspaceName, hosts)
+	if err != nil {
+		return nil, err
+	}
+	err = connect(shards)
+	if err != nil {
+		return nil, err
+	}
+	return &Cluster{Shards: shards}, nil
+}
+
+// func (c *Cluster) Run() error {
+// 	for _, shard := range c.Shards {
+// 		go shard.Proxy.Run()
+// 	}
+// }
+
+func buildShards(keyspaceName string, hosts []string) ([]*Shard, error) {
 	count := len(hosts)
 	if count&(count-1) != 0 {
 		return nil, ErrShardCount
 	}
 	shardRange := 0xFFFFFFFFFFFFFFFF / uint64(count)
-	fmt.Printf("Shard range %d\n", shardRange)
 	shards := []*Shard{}
 	var start, end uint64
 	start = 0x0000000000000000
 	for i, host := range hosts {
-		var port int
-		var err error
 		hostAndPort := strings.Split(host, ":")
 		if len(hostAndPort) == 1 {
-			port = defaultPostgreSQLPort
+			return nil, ErrBadHost
 		} else if len(hostAndPort) > 2 {
 			return nil, ErrBadHost
 		} else {
-			port, err = strconv.Atoi(hostAndPort[1])
+			_, err := strconv.Atoi(hostAndPort[1])
 			if err != nil {
 				return nil, fmt.Errorf("cannot build cluster, invalid port number %s: %w", hostAndPort[1], err)
 			}
@@ -56,26 +75,83 @@ func buildCluster(keyspaceName string, hosts []string) (*Cluster, error) {
 		}
 		if i == 0 {
 			endStr := strconv.FormatUint(end, 16)
-			name = fmt.Sprintf("%s/-%s", keyspaceName, endStr[:2])
+			name = fmt.Sprintf("%s_-%s", keyspaceName, endStr[:2])
 		} else if i == count-1 {
 			startStr := strconv.FormatUint(start, 16)
-			name = fmt.Sprintf("%s/%s-", keyspaceName, startStr[:2])
+			name = fmt.Sprintf("%s_%s-", keyspaceName, startStr[:2])
 		} else {
 			startStr := strconv.FormatUint(start, 16)
 			endStr := strconv.FormatUint(end, 16)
-			name = fmt.Sprintf("%s/%s-%s", keyspaceName, startStr[:2], endStr[:2])
+			name = fmt.Sprintf("%s_%s-%s", keyspaceName, startStr[:2], endStr[:2])
 		}
 		shard := &Shard{
-			Host:          hostAndPort[0],
-			Port:          port,
+			Host:          host,
 			Name:          name,
-			keyspaceStart: start,
-			keyspaceEnd:   end,
+			KeyspaceStart: start,
+			KeyspaceEnd:   end,
 		}
 		shards = append(shards, shard)
 		start = end
 	}
-	return &Cluster{Shards: shards}, nil
+	return shards, nil
+}
+
+// TODO parallelize
+// For each shard,
+//  1. Establish the connection -> next step open a pool of connections
+//  2. Send the startup message
+// 	3. Send commands to check if DB exists already, otherwise create it
+func connect(shards []*Shard) error {
+	for _, shard := range shards {
+		// 1. Establish the connection and send the startup message
+		// listenNetwork := "tcp"
+		// if _, err := os.Stat(shard.Host); err == nil {
+		// 	listenNetwork = "unix"
+		// }
+		// serverConn, err := net.Dial(listenNetwork, shard.Host)
+		// if err != nil {
+		// 	return fmt.Errorf("error trying to connect to %s: %w", shard.Host, err)
+		// }
+		// shard.Conn = serverConn
+		ctx := context.Background()
+		pgConn, err := pgconn.Connect(ctx, fmt.Sprintf("postgres://%s", shard.Host))
+		if err != nil {
+			return fmt.Errorf("error trying to connect to %s: %w", shard.Host, err)
+		}
+		defer pgConn.Close(ctx)
+		shard.Conn = pgConn
+		// 	2. Send commands to check if DB exists already, otherwise create it
+		result := pgConn.ExecParams(ctx, "SELECT 1 FROM pg_database WHERE datname=$1", [][]byte{[]byte(shard.Name)}, nil, nil, nil)
+		var dbAlreadyExists bool
+		for result.NextRow() {
+			res := string(result.Values()[0])
+			if res == "1" {
+				dbAlreadyExists = true
+			}
+			break
+		}
+		_, err = result.Close()
+		if err != nil {
+			log.Fatalln("failed reading result:", err)
+			return fmt.Errorf("error reading result from shard %s: %w", shard.Host, err)
+		}
+		if dbAlreadyExists {
+			return nil
+		}
+		fmt.Println("AAAAA")
+		command := fmt.Sprintf("CREATE DATABASE %s", shard.Name)
+		result = pgConn.ExecParams(ctx, command, nil, nil, nil, nil)
+		for result.NextRow() {
+			return fmt.Errorf("shouldn't have received any result! Got %s", string(result.Values()[0]))
+		}
+		if result != nil {
+			_, err = result.Close()
+			if err != nil {
+				return fmt.Errorf("error reading result from shard %s: %w", shard.Host, err)
+			}
+		}
+	}
+	return nil
 }
 
 // func main() {

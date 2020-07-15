@@ -6,60 +6,47 @@ import (
 	"testing"
 )
 
-func TestBuildCluster(t *testing.T) {
+func TestBuildShards(t *testing.T) {
 
-	clusters := []*Cluster{
-		// 2 shards cluster
+	twoShards := []*Shard{
 		{
-			Shards: []*Shard{
-				{
-					Host:          "localhost",
-					Port:          5432,
-					Name:          "ecommerce/-80",
-					keyspaceStart: 0x0000000000000000,
-					keyspaceEnd:   0x8000000000000000,
-				},
-				{
-					Host:          "localhost",
-					Port:          5433,
-					Name:          "ecommerce/80-",
-					keyspaceStart: 0x8000000000000000,
-					keyspaceEnd:   0xFFFFFFFFFFFFFFFF,
-				},
-			},
+			Host:          "localhost:5432",
+			Name:          "ecommerce/-80",
+			KeyspaceStart: 0x0000000000000000,
+			KeyspaceEnd:   0x8000000000000000,
 		},
-		// 4 shards cluster
 		{
-			Shards: []*Shard{
-				{
-					Host:          "localhost",
-					Port:          5432,
-					Name:          "ecommerce/-40",
-					keyspaceStart: 0x0000000000000000,
-					keyspaceEnd:   0x4000000000000000,
-				},
-				{
-					Host:          "localhost",
-					Port:          5433,
-					Name:          "ecommerce/40-80",
-					keyspaceStart: 0x4000000000000000,
-					keyspaceEnd:   0x8000000000000000,
-				},
-				{
-					Host:          "localhost",
-					Port:          5434,
-					Name:          "ecommerce/80-c0",
-					keyspaceStart: 0x8000000000000000,
-					keyspaceEnd:   0xc000000000000000,
-				},
-				{
-					Host:          "localhost",
-					Port:          5435,
-					Name:          "ecommerce/c0-",
-					keyspaceStart: 0xc000000000000000,
-					keyspaceEnd:   0xFFFFFFFFFFFFFFFF,
-				},
-			},
+			Host:          "localhost:5433",
+			Name:          "ecommerce/80-",
+			KeyspaceStart: 0x8000000000000000,
+			KeyspaceEnd:   0xFFFFFFFFFFFFFFFF,
+		},
+	}
+
+	fourShards := []*Shard{
+		{
+			Host:          "localhost:5432",
+			Name:          "ecommerce/-40",
+			KeyspaceStart: 0x0000000000000000,
+			KeyspaceEnd:   0x4000000000000000,
+		},
+		{
+			Host:          "localhost:5433",
+			Name:          "ecommerce/40-80",
+			KeyspaceStart: 0x4000000000000000,
+			KeyspaceEnd:   0x8000000000000000,
+		},
+		{
+			Host:          "localhost:5434",
+			Name:          "ecommerce/80-c0",
+			KeyspaceStart: 0x8000000000000000,
+			KeyspaceEnd:   0xc000000000000000,
+		},
+		{
+			Host:          "localhost:5435",
+			Name:          "ecommerce/c0-",
+			KeyspaceStart: 0xc000000000000000,
+			KeyspaceEnd:   0xFFFFFFFFFFFFFFFF,
 		},
 	}
 
@@ -67,7 +54,7 @@ func TestBuildCluster(t *testing.T) {
 		name          string
 		keyspaceName  string
 		hosts         []string
-		expected      *Cluster
+		expected      []*Shard
 		expectedError error
 	}{
 		// {
@@ -87,21 +74,21 @@ func TestBuildCluster(t *testing.T) {
 		{
 			name:          "it should build the cluster of 2 shards",
 			keyspaceName:  "ecommerce",
-			hosts:         []string{"localhost", "localhost:5433"},
-			expected:      clusters[0],
+			hosts:         []string{"localhost:5432", "localhost:5433"},
+			expected:      twoShards,
 			expectedError: nil,
 		},
 		{
 			name:          "it should build the cluster of 4 shards",
 			keyspaceName:  "ecommerce",
-			hosts:         []string{"localhost", "localhost:5433", "localhost:5434", "localhost:5435"},
-			expected:      clusters[1],
+			hosts:         []string{"localhost:5432", "localhost:5433", "localhost:5434", "localhost:5435"},
+			expected:      fourShards,
 			expectedError: nil,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observed, err := buildCluster(tt.keyspaceName, tt.hosts)
+			observed, err := buildShards(tt.keyspaceName, tt.hosts)
 			if tt.expectedError != nil {
 				if !errors.As(err, &tt.expectedError) {
 					t.Fatalf("expected error type %v, got %v", tt.expectedError, err)
@@ -110,12 +97,12 @@ func TestBuildCluster(t *testing.T) {
 				if err != nil {
 					t.Fatalf("expected test to succeed, got error %v", err)
 				}
-				if len(tt.expected.Shards) != len(observed.Shards) {
-					t.Fatalf("expected has %d shards, observed has %d instead", len(tt.expected.Shards), len(observed.Shards))
+				if len(tt.expected) != len(observed) {
+					t.Fatalf("expected has %d shards, observed has %d instead", len(tt.expected), len(observed))
 				}
-				for i, s := range observed.Shards {
-					if !reflect.DeepEqual(*tt.expected.Shards[i], *s) {
-						t.Fatalf("expected shard %+v to equal %+v", s, tt.expected.Shards[i])
+				for i, s := range observed {
+					if !reflect.DeepEqual(*tt.expected[i], *s) {
+						t.Fatalf("expected shard %+v to equal %+v", s, tt.expected[i])
 					}
 				}
 			}
