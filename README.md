@@ -18,9 +18,9 @@ Provide a solution to do horizontal scaling of PostgreSQL DBs by sharding the da
     - They represent a range, where the left number is included, but the right is not.
     - Their notation is hexadecimal.
     - They are left justified.
-    - prefix means: anything less than the right value.
-    - postfix means: anything greater than or equal to the LHS value.
-    - A plain - denotes the full keyrange
+    - prefix \$ means: anything less than the right value.
+    - postfix \$ means: anything greater than or equal to the LHS value.
+    - A plain \$ denotes the full keyrange
 
   An example of shard naming configuration is `Customer/-80`, meaning this shard will own all rows whose keyspaceID calculated using the Primary Vindex function is lower than x80000000000000000000 (SHA-1 produces 20 bytes long hashes).
 
@@ -38,6 +38,7 @@ Matriarch
 - Reads the configuration file on startup, validates it and then builds an in memory representation of the available pgsql backends
 - Reads the vschema file, validates it and then builds an in memory representation of the shards using information about pgsql backends found in the conf file
 - Establishes a connection to each of the shards
+
   - On initial connection, checks if DB exists on each shard, otherwise it creates the DB
   - Connection lifecycle mgmt: if a shard dies and one of its replicas takes over, we need to reconnect
 

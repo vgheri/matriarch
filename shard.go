@@ -75,14 +75,14 @@ func buildShards(keyspaceName string, hosts []string) ([]*Shard, error) {
 		}
 		if i == 0 {
 			endStr := strconv.FormatUint(end, 16)
-			name = fmt.Sprintf("%s_-%s", keyspaceName, endStr[:2])
+			name = fmt.Sprintf("%s_$%s", keyspaceName, endStr[:2])
 		} else if i == count-1 {
 			startStr := strconv.FormatUint(start, 16)
-			name = fmt.Sprintf("%s_%s-", keyspaceName, startStr[:2])
+			name = fmt.Sprintf("%s_%s$", keyspaceName, startStr[:2])
 		} else {
 			startStr := strconv.FormatUint(start, 16)
 			endStr := strconv.FormatUint(end, 16)
-			name = fmt.Sprintf("%s_%s-%s", keyspaceName, startStr[:2], endStr[:2])
+			name = fmt.Sprintf("%s_%s$%s", keyspaceName, startStr[:2], endStr[:2])
 		}
 		shard := &Shard{
 			Host:          host,
@@ -98,21 +98,11 @@ func buildShards(keyspaceName string, hosts []string) ([]*Shard, error) {
 
 // TODO parallelize
 // For each shard,
-//  1. Establish the connection -> next step open a pool of connections
-//  2. Send the startup message
-// 	3. Send commands to check if DB exists already, otherwise create it
+//  1. Establish the connection (and send STARTUP message) -> next step open a pool of connections
+// 	2. Send commands to check if DB exists already, otherwise create it
 func connect(shards []*Shard) error {
 	for _, shard := range shards {
 		// 1. Establish the connection and send the startup message
-		// listenNetwork := "tcp"
-		// if _, err := os.Stat(shard.Host); err == nil {
-		// 	listenNetwork = "unix"
-		// }
-		// serverConn, err := net.Dial(listenNetwork, shard.Host)
-		// if err != nil {
-		// 	return fmt.Errorf("error trying to connect to %s: %w", shard.Host, err)
-		// }
-		// shard.Conn = serverConn
 		ctx := context.Background()
 		pgConn, err := pgconn.Connect(ctx, fmt.Sprintf("postgres://%s", shard.Host))
 		if err != nil {
@@ -138,7 +128,6 @@ func connect(shards []*Shard) error {
 		if dbAlreadyExists {
 			return nil
 		}
-		fmt.Println("AAAAA")
 		command := fmt.Sprintf("CREATE DATABASE %s", shard.Name)
 		result = pgConn.ExecParams(ctx, command, nil, nil, nil, nil)
 		for result.NextRow() {

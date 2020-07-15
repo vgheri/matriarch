@@ -11,13 +11,13 @@ func TestBuildShards(t *testing.T) {
 	twoShards := []*Shard{
 		{
 			Host:          "localhost:5432",
-			Name:          "ecommerce/-80",
+			Name:          "ecommerce_$80",
 			KeyspaceStart: 0x0000000000000000,
 			KeyspaceEnd:   0x8000000000000000,
 		},
 		{
 			Host:          "localhost:5433",
-			Name:          "ecommerce/80-",
+			Name:          "ecommerce_80$",
 			KeyspaceStart: 0x8000000000000000,
 			KeyspaceEnd:   0xFFFFFFFFFFFFFFFF,
 		},
@@ -26,25 +26,25 @@ func TestBuildShards(t *testing.T) {
 	fourShards := []*Shard{
 		{
 			Host:          "localhost:5432",
-			Name:          "ecommerce/-40",
+			Name:          "ecommerce_$40",
 			KeyspaceStart: 0x0000000000000000,
 			KeyspaceEnd:   0x4000000000000000,
 		},
 		{
 			Host:          "localhost:5433",
-			Name:          "ecommerce/40-80",
+			Name:          "ecommerce_40$80",
 			KeyspaceStart: 0x4000000000000000,
 			KeyspaceEnd:   0x8000000000000000,
 		},
 		{
 			Host:          "localhost:5434",
-			Name:          "ecommerce/80-c0",
+			Name:          "ecommerce_80$c0",
 			KeyspaceStart: 0x8000000000000000,
 			KeyspaceEnd:   0xc000000000000000,
 		},
 		{
 			Host:          "localhost:5435",
-			Name:          "ecommerce/c0-",
+			Name:          "ecommerce_c0$",
 			KeyspaceStart: 0xc000000000000000,
 			KeyspaceEnd:   0xFFFFFFFFFFFFFFFF,
 		},
