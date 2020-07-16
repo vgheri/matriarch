@@ -4,11 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 
 	// "log"
 	"os"
-	// "github.com/vgheri/matriarch/proxy"
+
+	"github.com/vgheri/matriarch/proxy"
 )
 
 var options struct {
@@ -44,20 +46,27 @@ func main() {
 		fmt.Printf("%d - %s - %s\n", i, s.Host, s.Name)
 	}
 
-	// 3. Start accepting connections from clients
-	// 4. For each incoming client connection, parse the query to identify the shard(s) involved and create a proxy for each backend involved, then send the query
-	// 5. Retrieve result and send it back to the client
+	// 2. Start accepting connections from clients
+	ln, err := net.Listen("tcp", options.listenAddress)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// ln, err := net.Listen("tcp", options.listenAddress)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+	// TODO this should be inside a goroutine
+	clientConn, err := ln.Accept()
+	if err != nil {
+		log.Fatal(err)
+	}
+	mock := proxy.NewMock(clientConn)
+	err = mock.HandleConnectionPhase()
+	if err != nil {
+		log.Fatalf("unable to mock pgsql and accept the request: %v", err)
+	}
+	for {
 
-	// // TODO this should be inside a goroutine
-	// clientConn, err := ln.Accept()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+	}
+	// 3. For each incoming client connection, parse the query to identify the shard(s) involved and create a proxy for each backend involved, then send the query
+	// 4. Retrieve result and send it back to the client
 
 	// proxy := proxy.NewProxy(clientConn, serverConn)
 	// err = proxy.Run()

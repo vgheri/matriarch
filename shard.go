@@ -142,24 +142,3 @@ func connect(shards []*Shard) error {
 	}
 	return nil
 }
-
-// func main() {
-// 	shardOne := shard{name: "-40", min: 0x0000000000000000, max: 0x4000000000000000}
-// 	shardTwo := shard{name: "40-80", min: 0x4000000000000000, max: 0x8000000000000000}
-// 	shardThree := shard{name: "80-c0", min: 0x8000000000000000, max: 0xc000000000000000}
-// 	shardFour := shard{name: "c0-", min: 0xc000000000000000, max: math.MaxUint64}
-
-// 	shards := []shard{}
-// 	shards = append(shards, shardOne, shardTwo, shardThree, shardFour)
-
-// 	crc64Table := crc64.MakeTable(0xC96C5795D7870F42)
-// 	target := crc64.Checksum([]byte("The quick brown fox jumps over the lazy dog."), crc64Table)
-// 	tgtToString := strconv.FormatUint(target, 16)
-// 	for _, s := range shards {
-// 		if target >= s.min && target < s.max {
-// 			fmt.Printf("Target %s belongs to shard %s\n", tgtToString, s.name)
-// 			break
-// 		}
-// 	}
-
-// }
