@@ -47,6 +47,10 @@ Matriarch
   - Secondary indexes are expressed on columns, and the system maintains (in-memory or elsewhere) structures that map combination of those columns values and shards that hold those rows. E.g. secondary index on `customer.location, customer.age`, then the structure maps existing values to shards holding rows with those values: map where key is the `WHERE` clause `customer.location="IT" && customer.age=25` and value is the array of shards owning rows which have those values for those columns.
   - On INSERT/UPDATE/DELETE, secondary indexes must be updated, meaning that this map must be updated as well.
 
+## TODO
+
+- Manage commands such as list databases, list tables etc... to use from psql or other clients
+
 ## Future features
 
 - Can the schema be read directly from PGSQL by crafting a PGSQL extension that allows devs to add metadata to the schema without having to manage a separate schema into another tool?

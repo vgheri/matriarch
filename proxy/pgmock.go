@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/jackc/pgmock"
 	"github.com/jackc/pgproto3/v2"
@@ -104,4 +105,65 @@ func (m *PGMock) HandleConnectionPhase() error {
 		return fmt.Errorf("error reading client connection %w", err)
 	}
 	return m.AcceptUnauthenticatedConnRequestSteps()
+}
+
+func (m *PGMock) HandleStartup() error {
+	startupMessage, err := m.backend.ReceiveStartupMessage()
+	if err != nil {
+		return fmt.Errorf("error receiving startup message: %w", err)
+	}
+
+	switch startupMessage.(type) {
+	case *pgproto3.StartupMessage:
+		buf := (&pgproto3.AuthenticationOk{}).Encode(nil)
+		buf = (&pgproto3.ReadyForQuery{TxStatus: 'I'}).Encode(buf)
+		_, err = m.frontendConn.Write(buf)
+		if err != nil {
+			return fmt.Errorf("error sending ready for query: %w", err)
+		}
+	case *pgproto3.SSLRequest:
+		_, err = m.frontendConn.Write([]byte("N"))
+		if err != nil {
+			return fmt.Errorf("error sending deny SSL request: %w", err)
+		}
+		return m.HandleStartup()
+	default:
+		return fmt.Errorf("unknown startup message: %#v", startupMessage)
+	}
+
+	return nil
+}
+
+func (m *PGMock) Receive() (pgproto3.FrontendMessage, error) {
+	msg, err := m.backend.Receive()
+	if err != nil {
+		return nil, fmt.Errorf("cannot receive client message: %w", err)
+	}
+	buf, err := json.Marshal(msg)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal message into JSON: %w", err)
+	}
+	fmt.Println("F", string(buf))
+	return msg, nil
+}
+
+func (m *PGMock) Process(msg pgproto3.FrontendMessage) error {
+	buf, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("cannot marshal message into JSON: %w", err)
+	}
+	switch msg.(type) {
+	case *pgproto3.Query:
+		var q QueryMessage
+		err = json.NewDecoder(strings.NewReader(string(buf))).Decode(&q)
+		if err != nil {
+			return fmt.Errorf("cannot decode frontend Query message into QueryMessage struct: %w", err)
+		}
+		fmt.Printf("Received query %s\n", q.String)
+	}
+	return nil
+}
+
+func (p *PGMock) Close() error {
+	return p.frontendConn.Close()
 }

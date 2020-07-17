@@ -62,10 +62,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("unable to mock pgsql and accept the request: %v", err)
 	}
-	for {
-
-	}
 	// 3. For each incoming client connection, parse the query to identify the shard(s) involved and create a proxy for each backend involved, then send the query
+	msg, err := mock.Receive()
+	if err != nil {
+		log.Fatalf("cannot receive message from client: %v", err)
+	}
+	err = mock.Process(msg)
+	if err != nil {
+		log.Fatalf("cannot process message: %v", err)
+	}
+
 	// 4. Retrieve result and send it back to the client
 
 	// proxy := proxy.NewProxy(clientConn, serverConn)
@@ -73,4 +79,5 @@ func main() {
 	// if err != nil {
 	// 	log.Fatal(err)
 	// }
+	log.Fatal(mock.Close())
 }
