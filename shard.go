@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/crc64"
 	"log"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ const defaultPostgreSQLPort = 5432
 
 var ErrBadHost = errors.New("bad host configuration, please specify host:port")
 var ErrShardCount = errors.New("shard count must be a power of two")
+var ErrCannotFindTargetShard = errors.New("cannot find shard owner of desired keyspace id value")
 
 func NewCluster(keyspaceName string, hosts []string) (*Cluster, error) {
 	shards, err := buildShards(keyspaceName, hosts)
@@ -108,8 +110,6 @@ func connect(shards []*Shard) error {
 		if err != nil {
 			return fmt.Errorf("error trying to connect to %s: %w", shard.Host, err)
 		}
-		defer pgConn.Close(ctx)
-		shard.Conn = pgConn
 		// 	2. Send commands to check if DB exists already, otherwise create it
 		result := pgConn.ExecParams(ctx, "SELECT 1 FROM pg_database WHERE datname=$1", [][]byte{[]byte(shard.Name)}, nil, nil, nil)
 		var dbAlreadyExists bool
@@ -125,20 +125,40 @@ func connect(shards []*Shard) error {
 			log.Fatalln("failed reading result:", err)
 			return fmt.Errorf("error reading result from shard %s: %w", shard.Host, err)
 		}
-		if dbAlreadyExists {
-			return nil
-		}
-		command := fmt.Sprintf("CREATE DATABASE %s", shard.Name)
-		result = pgConn.ExecParams(ctx, command, nil, nil, nil, nil)
-		for result.NextRow() {
-			return fmt.Errorf("shouldn't have received any result! Got %s", string(result.Values()[0]))
-		}
-		if result != nil {
-			_, err = result.Close()
-			if err != nil {
-				return fmt.Errorf("error reading result from shard %s: %w", shard.Host, err)
+		if !dbAlreadyExists {
+			command := fmt.Sprintf("CREATE DATABASE %s", shard.Name)
+			result = pgConn.ExecParams(ctx, command, nil, nil, nil, nil)
+			for result.NextRow() {
+				return fmt.Errorf("shouldn't have received any result! Got %s", string(result.Values()[0]))
+			}
+			if result != nil {
+				_, err = result.Close()
+				if err != nil {
+					return fmt.Errorf("error reading result from shard %s: %w", shard.Host, err)
+				}
 			}
 		}
+		_ = pgConn.Close(ctx)
+		connString := fmt.Sprintf("postgres://%s/%s", shard.Host, shard.Name)
+		pgConn, err = pgconn.Connect(ctx, connString)
+		if err != nil {
+			return fmt.Errorf("error trying to connect to %s/%s: %w", shard.Host, shard.Name, err)
+		}
+		shard.Conn = pgConn
 	}
 	return nil
+}
+
+var crc64Table = crc64.MakeTable(0xC96C5795D7870F42)
+
+// GetShardForKeyspaceId returns the shard owning a specific keyspace id, which is
+// calculated as the result crc64 checksum of the input string
+func (c *Cluster) GetShardForKeyspaceId(value string) (*Shard, error) {
+	keyspaceId := crc64.Checksum([]byte(value), crc64Table)
+	for _, s := range c.Shards {
+		if keyspaceId >= s.KeyspaceStart && keyspaceId < s.KeyspaceEnd {
+			return s, nil
+		}
+	}
+	return nil, ErrCannotFindTargetShard
 }

@@ -3,30 +3,33 @@ CREATE TABLE members (
     email varchar(128),
     hashed_password varchar(128),
     name varchar(128),
-    PRIMARY KEY (user_id)
-);
-
-CREATE TABLE orders (
-    id uuid,
-    member_id uuid,
-    amount decimal,
     PRIMARY KEY (id)
 );
 
-CREATE TABLE order_items (
-    order_id uuid,
-    product_id uuid,
-    amount int,
-    PRIMARY KEY (order_id, item_id)
-);
-
-CREATE TABLE product (
+CREATE TABLE products (
     id uuid,
     name varchar(128),
     ean varchar(128),
     price decimal,
     category_id uuid,
     PRIMARY KEY (id)
+);
+
+CREATE TABLE orders (
+    id uuid,
+    member_id uuid,
+    amount decimal,
+    PRIMARY KEY (id),
+    CONSTRAINT member_id FOREIGN KEY (member_id) REFERENCES members (id)
+);
+
+CREATE TABLE order_items (
+    order_id uuid,
+    product_id uuid,
+    amount int,
+    PRIMARY KEY (order_id, product_id),
+    CONSTRAINT order_id FOREIGN KEY (order_id) REFERENCES orders (id),
+    CONSTRAINT product_id FOREIGN KEY (product_id) REFERENCES products (id)
 );
 
 CREATE TABLE categories (

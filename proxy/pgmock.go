@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/jackc/pgmock"
 	"github.com/jackc/pgproto3/v2"
+	// pg_query "github.com/lfittl/pg_query_go"
+	// nodes "github.com/lfittl/pg_query_go/nodes"
 )
 
 type PGMock struct {
@@ -107,6 +108,7 @@ func (m *PGMock) HandleConnectionPhase() error {
 	return m.AcceptUnauthenticatedConnRequestSteps()
 }
 
+// TODO Use this
 func (m *PGMock) HandleStartup() error {
 	startupMessage, err := m.backend.ReceiveStartupMessage()
 	if err != nil {
@@ -147,22 +149,69 @@ func (m *PGMock) Receive() (pgproto3.FrontendMessage, error) {
 	return msg, nil
 }
 
-func (m *PGMock) Process(msg pgproto3.FrontendMessage) error {
-	buf, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("cannot marshal message into JSON: %w", err)
-	}
-	switch msg.(type) {
-	case *pgproto3.Query:
-		var q QueryMessage
-		err = json.NewDecoder(strings.NewReader(string(buf))).Decode(&q)
-		if err != nil {
-			return fmt.Errorf("cannot decode frontend Query message into QueryMessage struct: %w", err)
-		}
-		fmt.Printf("Received query %s\n", q.String)
-	}
-	return nil
-}
+// func (m *PGMock) Process(msg pgproto3.FrontendMessage) error {
+// 	buf, err := json.Marshal(msg)
+// 	if err != nil {
+// 		return fmt.Errorf("cannot marshal message into JSON: %w", err)
+// 	}
+// 	switch msg.(type) {
+// 	case *pgproto3.Query:
+// 		var q QueryMessage
+// 		err = json.NewDecoder(strings.NewReader(string(buf))).Decode(&q)
+// 		if err != nil {
+// 			return fmt.Errorf("cannot decode frontend Query message into QueryMessage struct: %w", err)
+// 		}
+// 		fmt.Printf("Received query %s\n", q.String)
+// 		stmts, err := engine.NewParser().Parse(strings.NewReader(q.String))
+// 		if err != nil {
+// 			return fmt.Errorf("cannot parse frontend Query message: %w", err)
+// 		}
+// 		for _, stmt := range stmts {
+// 			switch s := stmt.Raw.Stmt.(type) {
+
+// 			case *pg.InsertStmt:
+// 				relation := *s.Relation.Relname
+// 				var columns []string
+// 				for _, item := range s.Cols.Items {
+// 					t := item.(*pg.ResTarget)
+// 					columns = append(columns, *t.Name)
+// 				}
+// 				fmt.Printf("Relation: %s, columns: %s\n", relation, columns)
+// 				switch ss := s.SelectStmt.(type) {
+// 				case *pg.SelectStmt:
+// 					for _, v := range ss.ValuesLists.Items {
+// 						switch t := v.(type) {
+// 						case *ast.List:
+// 							for i, vv := range t.Items {
+// 								switch tt := vv.(type) {
+// 								case *pg.A_Const:
+// 									switch vt := tt.Val.(type) {
+// 									case *pg.Integer:
+// 										fmt.Printf("Value for item %d, %d\n", i, vt.Ival)
+// 									case *pg.String:
+// 										fmt.Printf("Value for item %d, %s\n", i, vt.Str)
+// 									case *pg.Null:
+// 										fmt.Printf("Item %d has null value\n", i)
+// 									default:
+// 										fmt.Printf("Item %d, value %+v\n", i, vv)
+// 									}
+// 								default:
+// 									fmt.Printf("Unknown type in InsertStmt->SelectStmt->ValuesList.Items %#v\n", t)
+// 								}
+// 							}
+// 						default:
+// 							fmt.Printf("Unknown type in InsertStmt->SelectStmt->ValuesList %#v\n", t)
+// 						}
+
+// 					}
+// 				default:
+// 					fmt.Printf("Unknown type in InsertStmt->SelectStmt %#v\n", ss)
+// 				}
+// 			}
+// 		}
+// 	}
+// 	return nil
+// }
 
 func (p *PGMock) Close() error {
 	return p.frontendConn.Close()

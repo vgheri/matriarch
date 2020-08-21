@@ -43,7 +43,7 @@ func main() {
 		log.Fatalf("Couldn't create new Matriarch cluster: %v", err)
 	}
 	for i, s := range cluster.Shards {
-		fmt.Printf("%d - %s - %s\n", i, s.Host, s.Name)
+		fmt.Printf("%d - Connected to %s - %s\n", i, s.Host, s.Name)
 	}
 
 	// 2. Start accepting connections from clients
@@ -52,7 +52,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// TODO this should be inside a goroutine
+	// TODO this should be inside a for loop, creating a goroutine  for each  client connection
 	clientConn, err := ln.Accept()
 	if err != nil {
 		log.Fatal(err)
@@ -67,7 +67,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("cannot receive message from client: %v", err)
 	}
-	err = mock.Process(msg)
+
+	var isClosed bool
+	for _, s := range cluster.Shards {
+		if s.Conn.IsClosed() {
+			isClosed = true
+			fmt.Printf("Connection for shard %s is closed\n", s.Name)
+		}
+	}
+	if isClosed {
+		log.Fatal("One or more connections to backends are closed. Quitting...")
+	}
+	err = Process(msg, cluster, vschema)
 	if err != nil {
 		log.Fatalf("cannot process message: %v", err)
 	}

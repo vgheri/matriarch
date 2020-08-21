@@ -1,4 +1,4 @@
-package proxy
+package main
 
 // case 'B':
 // 		msg = &b.bind
