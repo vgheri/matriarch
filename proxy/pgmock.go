@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/jackc/pgconn"
 	"github.com/jackc/pgmock"
 	"github.com/jackc/pgproto3/v2"
 	// pg_query "github.com/lfittl/pg_query_go"
@@ -147,6 +148,49 @@ func (m *PGMock) Receive() (pgproto3.FrontendMessage, error) {
 	}
 	fmt.Println("F", string(buf))
 	return msg, nil
+}
+
+func (m *PGMock) SendErrorMessage(err *pgconn.PgError) error {
+	msg := &pgproto3.ErrorResponse{
+		Severity:         err.Severity,
+		Code:             err.Code,
+		Message:          err.Message,
+		Detail:           err.Detail,
+		Hint:             err.Hint,
+		Position:         err.Position,
+		InternalPosition: err.InternalPosition,
+		InternalQuery:    err.InternalQuery,
+		Where:            err.Where,
+		SchemaName:       err.SchemaName,
+		TableName:        err.TableName,
+		ColumnName:       err.ColumnName,
+		DataTypeName:     err.DataTypeName,
+		ConstraintName:   err.ConstraintName,
+		File:             err.File,
+		Line:             err.Line,
+		Routine:          err.Routine,
+	}
+	return m.backend.Send(msg)
+}
+
+func (m *PGMock) FinaliseInsertSequence(results []*pgconn.Result) {
+	if results != nil {
+		// Send RowDescription and then DataRow messages
+		// B {"Type":"RowDescription","Fields":[{"Name":"id","TableOID":16386,"TableAttributeNumber":1,"DataTypeOID":23,"DataTypeSize":4,"TypeModifier":-1,"Format":0}]}
+		// B {"Type":"DataRow","Values":[{"text":"5"}]}
+	}
+	// Send command complete
+	// B {"Type":"CommandComplete","CommandTag":"INSERT 0 1"}
+	cmdCompleteMsg := &pgproto3.CommandComplete{
+		CommandTag: []byte("INSERT 0 1"),
+	}
+	m.backend.Send(cmdCompleteMsg)
+	// Send ReadyForQuery
+	// B {"Type":"ReadyForQuery","TxStatus":"I"}
+	readForQueryMsg := &pgproto3.ReadyForQuery{
+		TxStatus: 'I',
+	}
+	m.backend.Send(readForQueryMsg)
 }
 
 // func (m *PGMock) Process(msg pgproto3.FrontendMessage) error {

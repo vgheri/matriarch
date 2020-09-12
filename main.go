@@ -78,13 +78,15 @@ func main() {
 	if isClosed {
 		log.Fatal("One or more connections to backends are closed. Quitting...")
 	}
-	err = Process(msg, cluster, vschema)
+	results, pgerr, err := Process(msg, cluster, vschema)
 	if err != nil {
 		log.Fatalf("cannot process message: %v", err)
 	}
-
+	if pgerr != nil {
+		mock.SendErrorMessage(pgerr)
+	}
 	// 4. Retrieve result and send it back to the client
-
+	mock.FinaliseInsertSequence(results)
 	// proxy := proxy.NewProxy(clientConn, serverConn)
 	// err = proxy.Run()
 	// if err != nil {

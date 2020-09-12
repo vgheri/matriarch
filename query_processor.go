@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgconn"
 	"github.com/jackc/pgproto3/v2"
 
 	// pg_query "github.com/lfittl/pg_query_go"
@@ -16,22 +17,24 @@ import (
 	"github.com/vgheri/matriarch/parser/sql/ast/pg"
 )
 
-func Process(msg pgproto3.FrontendMessage, cluster *Cluster, vschema *Vschema) error {
+// This should be further split into 2 distinct functions: parse and execute, where
+// parse returns classic go errors, and execute returns sql errors
+func Process(msg pgproto3.FrontendMessage, cluster *Cluster, vschema *Vschema) ([]*pgconn.Result, *pgconn.PgError, error) {
 	buf, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("cannot marshal message into JSON: %w", err)
+		return nil, nil, fmt.Errorf("cannot marshal message into JSON: %w", err)
 	}
 	switch msg.(type) {
 	case *pgproto3.Query:
 		var q QueryMessage
 		err = json.NewDecoder(strings.NewReader(string(buf))).Decode(&q)
 		if err != nil {
-			return fmt.Errorf("cannot decode frontend Query message into QueryMessage struct: %w", err)
+			return nil, nil, fmt.Errorf("cannot decode frontend Query message into QueryMessage struct: %w", err)
 		}
 		fmt.Printf("Received query %s\n", q.String)
 		stmts, err := engine.NewParser().Parse(strings.NewReader(q.String))
 		if err != nil {
-			return fmt.Errorf("cannot parse frontend Query message: %w", err)
+			return nil, nil, fmt.Errorf("cannot parse frontend Query message: %w", err)
 		}
 		for _, stmt := range stmts {
 			switch s := stmt.Raw.Stmt.(type) {
@@ -48,7 +51,7 @@ func Process(msg pgproto3.FrontendMessage, cluster *Cluster, vschema *Vschema) e
 				// Iterate first on table vindex columns, and  then on insert stmt columns
 				table := vschema.GetTable(relation)
 				if table == nil {
-					return fmt.Errorf("cannot process message, table %s is not part of the vschema", relation)
+					return nil, nil, fmt.Errorf("cannot process message, table %s is not part of the vschema", relation)
 				}
 				var indexes []int
 				for _, pc := range table.GetPrimaryVIndex().Columns {
@@ -75,31 +78,30 @@ func Process(msg pgproto3.FrontendMessage, cluster *Cluster, vschema *Vschema) e
 									case *pg.String:
 										concat = appendToConcatenate(concat, vt.Str)
 									case *pg.Null:
-										return errors.New("cannot insert row with null value for column part of a primary VIndex")
+										return nil, nil, errors.New("cannot insert row with null value for column part of a primary VIndex")
 									default:
-										return errors.New("cannot insert row with unknown value for column part of a primary VIndex")
+										return nil, nil, errors.New("cannot insert row with unknown value for column part of a primary VIndex")
 									}
 								default:
-									return fmt.Errorf("unknown type in InsertStmt->SelectStmt->ValuesList.Items %#v\n", tt)
+									return nil, nil, fmt.Errorf("unknown type in InsertStmt->SelectStmt->ValuesList.Items %#v\n", tt)
 								}
 							}
 							target, err := cluster.GetShardForKeyspaceId(concat)
 							if err != nil {
-								return fmt.Errorf("cannot select destination shard for insert statement: %w", err)
+								return nil, nil, fmt.Errorf("cannot select destination shard for insert statement: %w", err)
 							}
 							fmt.Printf("Shard selected: %s\n", target.Name)
 							res := target.Conn.Exec(context.Background(), q.String)
 							defer res.Close()
 							results, err := res.ReadAll()
 							if err != nil {
-								return fmt.Errorf("cannot read insert statement result: %w", err)
-							}
-							for _, result := range results {
-								for _, row := range result.Rows {
-									fmt.Println(string(row[0]))
+								fmt.Printf("cannot read insert statement result: %v", err)
+								if pgErr, ok := err.(*pgconn.PgError); ok {
+									return nil, pgErr, nil
 								}
-								fmt.Println(result.CommandTag)
+								return nil, nil, err
 							}
+							return results, nil, nil
 						default:
 							fmt.Printf("Unknown type in InsertStmt->SelectStmt->ValuesList %#v\n", t)
 						}
@@ -110,7 +112,7 @@ func Process(msg pgproto3.FrontendMessage, cluster *Cluster, vschema *Vschema) e
 			}
 		}
 	}
-	return nil
+	return nil, nil, nil
 }
 
 func appendToConcatenate(concat, val string) string {
