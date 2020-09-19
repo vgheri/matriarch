@@ -1,14 +1,24 @@
-## Main feature
+# Matriarch
 
-Provide a solution to do horizontal scaling of PostgreSQL DBs by sharding the data between distinct PostgreSQL instances.
+Matriarch goal is to provide a solution to do horizontal scaling on top of PostgreSQL DBs, by sharding the data between several PostgreSQL instances.
 
-## Initial design constraints
+The project is mostly an experiment of mine to understand how such a system could be built.  
+The basic sharding mechanisms are based on [Vitess.io](https://vitess.io) and lots of mechanics on how to parse SQL queries are taken from https://github.com/kyleconroy/sqlc OSS project.  
+I would have loved to import `sqlc` routines as packages, but unfortunately the code I needed lives inside `internal` packages, which sadly are not free to import by external projects.
+
+## Status of the project
+
+Matriarch is very much a work in progress, which will likely never be fully completed.
+
+## Design considerations
+
+### Initial design constraints
 
 - fixed number of shards: i.e. it is not possible to add/remove shards after initial configuration
 - user must submit a virtual schema so that Matriarch, when receiving a SQL command, knows which shards to target to execute the operation
 - user should never use sequences as column identifiers (serial) but should use UUIDs instead, as sequences do not fit well with a distributed DB
 
-## Concepts:
+### Concepts:
 
 - Keyspace = logical database that maps to multiple PGSQL databases, each one owned by a different shard. A keyspace appears as a single database from the standpoint of the application
 - Each shard is a PGSQL cluster, composed of a primary and secondaries, owning a portion of the keyspace (really a range of keyspace ID values in the keyspace). Each shard contains sharded tables (content scattered amongst shards) and reference tables (same data copied everywhere, read only tables)
@@ -31,7 +41,7 @@ Provide a solution to do horizontal scaling of PostgreSQL DBs by sharding the da
   - A Unique Vindex is one that yields at most one keyspace ID for a given input. Knowing that a Vindex is Unique is useful because VTGate can push down some complex queries into VTTablet if it knows that the scope of that query cannot exceed a shard. Uniqueness is also a prerequisite for a Vindex to be used as Primary Vindex.
   - A NonUnique Vindex is analogous to a database non-unique index. It is a secondary index for searching by an alternate WHERE clause. An input value could yield multiple keyspace IDs, and rows could be matched from multiple shards. For example, if a table has a name column that allows duplicates, you can define a cross-shard NonUnique Vindex for it, and this will let you efficiently search for users that match a certain name.
 
-## How it works
+### How it works
 
 Matriarch
 

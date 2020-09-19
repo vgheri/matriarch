@@ -15,26 +15,28 @@ import (
 	"github.com/vgheri/matriarch/parser/engine"
 	"github.com/vgheri/matriarch/parser/sql/ast"
 	"github.com/vgheri/matriarch/parser/sql/ast/pg"
+	"github.com/vgheri/matriarch/proxy"
 )
 
 // This should be further split into 2 distinct functions: parse and execute, where
 // parse returns classic go errors, and execute returns sql errors
-func Process(msg pgproto3.FrontendMessage, cluster *Cluster, vschema *Vschema) ([]*pgconn.Result, *pgconn.PgError, error) {
+func Process(msg pgproto3.FrontendMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema) error {
 	buf, err := json.Marshal(msg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("cannot marshal message into JSON: %w", err)
+		return fmt.Errorf("cannot marshal message into JSON: %w", err)
 	}
 	switch msg.(type) {
+	case *pgproto3.Terminate:
+		return mock.Close()
 	case *pgproto3.Query:
 		var q QueryMessage
 		err = json.NewDecoder(strings.NewReader(string(buf))).Decode(&q)
 		if err != nil {
-			return nil, nil, fmt.Errorf("cannot decode frontend Query message into QueryMessage struct: %w", err)
+			return fmt.Errorf("cannot decode frontend Query message into QueryMessage struct: %w", err)
 		}
-		fmt.Printf("Received query %s\n", q.String)
 		stmts, err := engine.NewParser().Parse(strings.NewReader(q.String))
 		if err != nil {
-			return nil, nil, fmt.Errorf("cannot parse frontend Query message: %w", err)
+			return fmt.Errorf("cannot parse frontend Query message: %w", err)
 		}
 		for _, stmt := range stmts {
 			switch s := stmt.Raw.Stmt.(type) {
@@ -51,7 +53,7 @@ func Process(msg pgproto3.FrontendMessage, cluster *Cluster, vschema *Vschema) (
 				// Iterate first on table vindex columns, and  then on insert stmt columns
 				table := vschema.GetTable(relation)
 				if table == nil {
-					return nil, nil, fmt.Errorf("cannot process message, table %s is not part of the vschema", relation)
+					return fmt.Errorf("cannot process message, table %s is not part of the vschema", relation)
 				}
 				var indexes []int
 				for _, pc := range table.GetPrimaryVIndex().Columns {
@@ -61,7 +63,7 @@ func Process(msg pgproto3.FrontendMessage, cluster *Cluster, vschema *Vschema) (
 						}
 					}
 				}
-				fmt.Printf("Relation: %s, columns: %s\n", relation, columns)
+				fmt.Printf("DEBUG: Relation: %s, columns: %s\n", relation, columns)
 				switch ss := s.SelectStmt.(type) {
 				case *pg.SelectStmt:
 					for _, v := range ss.ValuesLists.Items {
@@ -78,30 +80,32 @@ func Process(msg pgproto3.FrontendMessage, cluster *Cluster, vschema *Vschema) (
 									case *pg.String:
 										concat = appendToConcatenate(concat, vt.Str)
 									case *pg.Null:
-										return nil, nil, errors.New("cannot insert row with null value for column part of a primary VIndex")
+										return errors.New("cannot insert row with null value for column part of a primary VIndex")
 									default:
-										return nil, nil, errors.New("cannot insert row with unknown value for column part of a primary VIndex")
+										return errors.New("cannot insert row with unknown value for column part of a primary VIndex")
 									}
 								default:
-									return nil, nil, fmt.Errorf("unknown type in InsertStmt->SelectStmt->ValuesList.Items %#v\n", tt)
+									return fmt.Errorf("unknown type in InsertStmt->SelectStmt->ValuesList.Items %#v\n", tt)
 								}
 							}
 							target, err := cluster.GetShardForKeyspaceId(concat)
 							if err != nil {
-								return nil, nil, fmt.Errorf("cannot select destination shard for insert statement: %w", err)
+								return fmt.Errorf("cannot select destination shard for insert statement: %w", err)
 							}
-							fmt.Printf("Shard selected: %s\n", target.Name)
+							fmt.Printf("DEBUG: Shard selected: %s\n", target.Name)
 							res := target.Conn.Exec(context.Background(), q.String)
 							defer res.Close()
 							results, err := res.ReadAll()
 							if err != nil {
 								fmt.Printf("cannot read insert statement result: %v", err)
 								if pgErr, ok := err.(*pgconn.PgError); ok {
-									return nil, pgErr, nil
+									mock.SendErrorMessage(pgErr)
+									return nil
 								}
-								return nil, nil, err
+								return err
 							}
-							return results, nil, nil
+							mock.FinaliseInsertSequence(results)
+							return nil
 						default:
 							fmt.Printf("Unknown type in InsertStmt->SelectStmt->ValuesList %#v\n", t)
 						}
@@ -112,7 +116,7 @@ func Process(msg pgproto3.FrontendMessage, cluster *Cluster, vschema *Vschema) (
 			}
 		}
 	}
-	return nil, nil, nil
+	return nil
 }
 
 func appendToConcatenate(concat, val string) string {

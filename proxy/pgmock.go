@@ -13,8 +13,9 @@ import (
 )
 
 type PGMock struct {
-	backend      *pgproto3.Backend
-	frontendConn net.Conn
+	backend          *pgproto3.Backend
+	frontendConn     net.Conn
+	connectionClosed bool
 }
 
 func NewMock(frontendConn net.Conn) *PGMock {
@@ -173,90 +174,74 @@ func (m *PGMock) SendErrorMessage(err *pgconn.PgError) error {
 	return m.backend.Send(msg)
 }
 
-func (m *PGMock) FinaliseInsertSequence(results []*pgconn.Result) {
-	if results != nil {
+func (m *PGMock) FinaliseInsertSequence(results []*pgconn.Result) error {
+	for _, result := range results {
 		// Send RowDescription and then DataRow messages
 		// B {"Type":"RowDescription","Fields":[{"Name":"id","TableOID":16386,"TableAttributeNumber":1,"DataTypeOID":23,"DataTypeSize":4,"TypeModifier":-1,"Format":0}]}
+		rowDescriptionMsg := &pgproto3.RowDescription{
+			Fields: result.FieldDescriptions,
+		}
+		// DEBUG
+		buf, err := json.Marshal(rowDescriptionMsg)
+		if err != nil {
+			return err
+		}
+		fmt.Println("B", string(buf))
+		if err := m.backend.Send(rowDescriptionMsg); err != nil {
+			return fmt.Errorf("cannot send RowDescription message to client: %w", err)
+		}
 		// B {"Type":"DataRow","Values":[{"text":"5"}]}
+		for _, row := range result.Rows {
+			dataRowMsg := &pgproto3.DataRow{
+				Values: row,
+			}
+			// DEBUG
+			buf, err := json.Marshal(dataRowMsg)
+			if err != nil {
+				return err
+			}
+			fmt.Println("B", string(buf))
+			if err := m.backend.Send(dataRowMsg); err != nil {
+				return fmt.Errorf("cannot send DataRow message to client: %w", err)
+			}
+		}
+		// Send command complete
+		// B {"Type":"CommandComplete","CommandTag":"INSERT 0 1"}
+		cmdCompleteMsg := &pgproto3.CommandComplete{
+			CommandTag: []byte(fmt.Sprintf("INSERT 0 %d", result.CommandTag.RowsAffected())),
+		}
+		// DEBUG
+		buf, err = json.Marshal(cmdCompleteMsg)
+		if err != nil {
+			return err
+		}
+		fmt.Println("B", string(buf))
+		if err := m.backend.Send(cmdCompleteMsg); err != nil {
+			return fmt.Errorf("cannot send CommandComplete message to client: %w", err)
+		}
 	}
-	// Send command complete
-	// B {"Type":"CommandComplete","CommandTag":"INSERT 0 1"}
-	cmdCompleteMsg := &pgproto3.CommandComplete{
-		CommandTag: []byte("INSERT 0 1"),
-	}
-	m.backend.Send(cmdCompleteMsg)
 	// Send ReadyForQuery
 	// B {"Type":"ReadyForQuery","TxStatus":"I"}
 	readForQueryMsg := &pgproto3.ReadyForQuery{
 		TxStatus: 'I',
 	}
-	m.backend.Send(readForQueryMsg)
+	// DEBUG
+	buf, err := json.Marshal(readForQueryMsg)
+	if err != nil {
+		return err
+	}
+	fmt.Println("B", string(buf))
+	if err := m.backend.Send(readForQueryMsg); err != nil {
+		return fmt.Errorf("cannot send ReadForQuery message to client: %w", err)
+	}
+	return nil
 }
 
-// func (m *PGMock) Process(msg pgproto3.FrontendMessage) error {
-// 	buf, err := json.Marshal(msg)
-// 	if err != nil {
-// 		return fmt.Errorf("cannot marshal message into JSON: %w", err)
-// 	}
-// 	switch msg.(type) {
-// 	case *pgproto3.Query:
-// 		var q QueryMessage
-// 		err = json.NewDecoder(strings.NewReader(string(buf))).Decode(&q)
-// 		if err != nil {
-// 			return fmt.Errorf("cannot decode frontend Query message into QueryMessage struct: %w", err)
-// 		}
-// 		fmt.Printf("Received query %s\n", q.String)
-// 		stmts, err := engine.NewParser().Parse(strings.NewReader(q.String))
-// 		if err != nil {
-// 			return fmt.Errorf("cannot parse frontend Query message: %w", err)
-// 		}
-// 		for _, stmt := range stmts {
-// 			switch s := stmt.Raw.Stmt.(type) {
-
-// 			case *pg.InsertStmt:
-// 				relation := *s.Relation.Relname
-// 				var columns []string
-// 				for _, item := range s.Cols.Items {
-// 					t := item.(*pg.ResTarget)
-// 					columns = append(columns, *t.Name)
-// 				}
-// 				fmt.Printf("Relation: %s, columns: %s\n", relation, columns)
-// 				switch ss := s.SelectStmt.(type) {
-// 				case *pg.SelectStmt:
-// 					for _, v := range ss.ValuesLists.Items {
-// 						switch t := v.(type) {
-// 						case *ast.List:
-// 							for i, vv := range t.Items {
-// 								switch tt := vv.(type) {
-// 								case *pg.A_Const:
-// 									switch vt := tt.Val.(type) {
-// 									case *pg.Integer:
-// 										fmt.Printf("Value for item %d, %d\n", i, vt.Ival)
-// 									case *pg.String:
-// 										fmt.Printf("Value for item %d, %s\n", i, vt.Str)
-// 									case *pg.Null:
-// 										fmt.Printf("Item %d has null value\n", i)
-// 									default:
-// 										fmt.Printf("Item %d, value %+v\n", i, vv)
-// 									}
-// 								default:
-// 									fmt.Printf("Unknown type in InsertStmt->SelectStmt->ValuesList.Items %#v\n", t)
-// 								}
-// 							}
-// 						default:
-// 							fmt.Printf("Unknown type in InsertStmt->SelectStmt->ValuesList %#v\n", t)
-// 						}
-
-// 					}
-// 				default:
-// 					fmt.Printf("Unknown type in InsertStmt->SelectStmt %#v\n", ss)
-// 				}
-// 			}
-// 		}
-// 	}
-// 	return nil
-// }
-
 func (p *PGMock) Close() error {
+	p.connectionClosed = true
 	return p.frontendConn.Close()
+}
+
+func (p *PGMock) IsClosed() bool {
+	return p.connectionClosed
 }

@@ -52,45 +52,35 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// TODO this should be inside a for loop, creating a goroutine  for each  client connection
-	clientConn, err := ln.Accept()
-	if err != nil {
-		log.Fatal(err)
-	}
-	mock := proxy.NewMock(clientConn)
-	err = mock.HandleConnectionPhase()
-	if err != nil {
-		log.Fatalf("unable to mock pgsql and accept the request: %v", err)
-	}
-	// 3. For each incoming client connection, parse the query to identify the shard(s) involved and create a proxy for each backend involved, then send the query
-	msg, err := mock.Receive()
-	if err != nil {
-		log.Fatalf("cannot receive message from client: %v", err)
-	}
-
-	var isClosed bool
-	for _, s := range cluster.Shards {
-		if s.Conn.IsClosed() {
-			isClosed = true
-			fmt.Printf("Connection for shard %s is closed\n", s.Name)
+	// main control loop
+	for {
+		// wait for a new client connection
+		clientConn, err := ln.Accept()
+		if err != nil {
+			log.Fatal(err)
 		}
+		// each client connection lifecycle is managed in its own goroutine
+		go func(clientConn net.Conn) {
+			mock := proxy.NewMock(clientConn)
+			err = mock.HandleConnectionPhase()
+			if err != nil {
+				log.Fatalf("unable to mock pgsql and accept the request: %v", err)
+			}
+			for {
+				// 3. For each incoming client connection, parse the query to identify the shard(s) involved and create a proxy for each backend involved, then send the query
+				msg, err := mock.Receive()
+				if err != nil {
+					log.Fatalf("cannot receive message from client: %v", err)
+				}
+
+				err = Process(msg, mock, cluster, vschema)
+				if err != nil {
+					log.Fatalf("cannot process message: %v", err)
+				}
+				if mock.IsClosed() {
+					return
+				}
+			}
+		}(clientConn)
 	}
-	if isClosed {
-		log.Fatal("One or more connections to backends are closed. Quitting...")
-	}
-	results, pgerr, err := Process(msg, cluster, vschema)
-	if err != nil {
-		log.Fatalf("cannot process message: %v", err)
-	}
-	if pgerr != nil {
-		mock.SendErrorMessage(pgerr)
-	}
-	// 4. Retrieve result and send it back to the client
-	mock.FinaliseInsertSequence(results)
-	// proxy := proxy.NewProxy(clientConn, serverConn)
-	// err = proxy.Run()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	log.Fatal(mock.Close())
 }
