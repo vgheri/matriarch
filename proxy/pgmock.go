@@ -237,6 +237,77 @@ func (m *PGMock) FinaliseInsertSequence(results []*pgconn.Result) error {
 	return nil
 }
 
+func (m *PGMock) FinaliseExecuteSequence(command string, results []*pgconn.Result) error {
+	for _, result := range results {
+		// Send RowDescription and then DataRow messages
+		// B {"Type":"RowDescription","Fields":[{"Name":"id","TableOID":16386,"TableAttributeNumber":1,"DataTypeOID":23,"DataTypeSize":4,"TypeModifier":-1,"Format":0}]}
+		if len(result.FieldDescriptions) > 0 {
+			rowDescriptionMsg := &pgproto3.RowDescription{
+				Fields: result.FieldDescriptions,
+			}
+			// DEBUG
+			buf, err := json.Marshal(rowDescriptionMsg)
+			if err != nil {
+				return err
+			}
+			fmt.Println("B", string(buf))
+			if err := m.backend.Send(rowDescriptionMsg); err != nil {
+				return fmt.Errorf("cannot send RowDescription message to client: %w", err)
+			}
+		}
+		// B {"Type":"DataRow","Values":[{"text":"5"}]}
+		for _, row := range result.Rows {
+			dataRowMsg := &pgproto3.DataRow{
+				Values: row,
+			}
+			// DEBUG
+			buf, err := json.Marshal(dataRowMsg)
+			if err != nil {
+				return err
+			}
+			fmt.Println("B", string(buf))
+			if err := m.backend.Send(dataRowMsg); err != nil {
+				return fmt.Errorf("cannot send DataRow message to client: %w", err)
+			}
+		}
+		// Send command complete
+		// B {"Type":"CommandComplete","CommandTag":"INSERT 0 1"}
+		var cmdCompleteMsg pgproto3.CommandComplete
+		switch command {
+		case "INSERT":
+			cmdCompleteMsg.CommandTag = []byte(fmt.Sprintf("%s 0 %d", command, result.CommandTag.RowsAffected()))
+		case "DELETE":
+			cmdCompleteMsg.CommandTag = []byte(fmt.Sprintf("%s %d", command, result.CommandTag.RowsAffected()))
+		default:
+			cmdCompleteMsg.CommandTag = []byte(fmt.Sprintf("%s %d", command, result.CommandTag.RowsAffected()))
+		}
+		// DEBUG
+		buf, err := json.Marshal(&cmdCompleteMsg)
+		if err != nil {
+			return err
+		}
+		fmt.Println("B", string(buf))
+		if err := m.backend.Send(&cmdCompleteMsg); err != nil {
+			return fmt.Errorf("cannot send CommandComplete message to client: %w", err)
+		}
+	}
+	// Send ReadyForQuery
+	// B {"Type":"ReadyForQuery","TxStatus":"I"}
+	readForQueryMsg := &pgproto3.ReadyForQuery{
+		TxStatus: 'I',
+	}
+	// DEBUG
+	buf, err := json.Marshal(readForQueryMsg)
+	if err != nil {
+		return err
+	}
+	fmt.Println("B", string(buf))
+	if err := m.backend.Send(readForQueryMsg); err != nil {
+		return fmt.Errorf("cannot send ReadForQuery message to client: %w", err)
+	}
+	return nil
+}
+
 func (p *PGMock) Close() error {
 	p.connectionClosed = true
 	return p.frontendConn.Close()

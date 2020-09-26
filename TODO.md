@@ -1,14 +1,24 @@
 PRIORITY TODO:
 
-- [ ] Delete statement use case
+- [ ] Implement DELETE statement
 
 NORMAL TODO:
 
-- Insert statement use case
+- Implement F {"Type":"CancelRequest","ProcessID":17399,"SecretKey":1755195487}
+
+- Implement INSERT statement
   - query_processor.Process:
     - [ ] Investigate how we can use either ExecParams either the low level connection to PGSQL by hijacking the connection
 - [ ] add routine that listens to signals such as SIGTERM or SIGKILL and which kills the mock
 - [ ] add connection pooling to main.go to manage frontend and backend connections
+- Implement UPDATE statement
+- Implement SELECT statement
+- Implement secondary indexes
+- Implement CancelRequest statement -> `F {"Type":"CancelRequest","ProcessID":17399,"SecretKey":1755195487}`
+
+## Testing
+
+`psql -h localhost -p 15432 -U vgheri -w`
 
 ## Message flow between client and server
 
