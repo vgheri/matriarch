@@ -1,18 +1,29 @@
 PRIORITY TODO:
 
-- [ ] Implement DELETE statement
+Features
+
+- Update schema.sql: remove foreign key member id on table orders, as they don't share the same primary vindex, same for order_items.product_id
+- Implement SELECT statement
+  - [ ] Implement AND boolean expression in where clause
+- Process message doesn't return any error, but sends a message to the client on error
+- [ ] Create struct Proxy which has ProcessMessage and SendResult as methods
+- Split ProcessMessage into two parts: one is parsing, the other message sending
+
+Bugs
+
+- [ ] Sending back an error to main loop doesn't crash the main process
+- [ ] Prevent UPDATE statement to update columns part of the primary vindex
 
 NORMAL TODO:
 
+- Support addressing relations with the form catalog.schema.relation
 - Implement F {"Type":"CancelRequest","ProcessID":17399,"SecretKey":1755195487}
-
+- Support `in` operator in where clause for UPDATE/DELETE/SELECT statements
 - Implement INSERT statement
   - query_processor.Process:
     - [ ] Investigate how we can use either ExecParams either the low level connection to PGSQL by hijacking the connection
 - [ ] add routine that listens to signals such as SIGTERM or SIGKILL and which kills the mock
 - [ ] add connection pooling to main.go to manage frontend and backend connections
-- Implement UPDATE statement
-- Implement SELECT statement
 - Implement secondary indexes
 - Implement CancelRequest statement -> `F {"Type":"CancelRequest","ProcessID":17399,"SecretKey":1755195487}`
 

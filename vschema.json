@@ -22,11 +22,15 @@
         {
           "columns": ["id"],
           "type": "primary"
+        },
+        {
+          "columns": ["member_id"],
+          "type": "secondary"
         }
       ]
     },
     {
-      "name": "order_item",
+      "name": "order_items",
       "type": "sharded",
       "vindexes": [
         {

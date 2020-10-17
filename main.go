@@ -75,7 +75,7 @@ func main() {
 
 				err = Process(msg, mock, cluster, vschema)
 				if err != nil {
-					log.Fatalf("cannot process message: %v", err)
+					fmt.Printf("cannot process message: %v", err)
 				}
 				if mock.IsClosed() {
 					return

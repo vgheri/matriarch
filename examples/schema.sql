@@ -1,4 +1,5 @@
-CREATE TABLE members (
+CREATE TABLE members
+(
     id uuid,
     email varchar(128),
     hashed_password varchar(128),
@@ -6,7 +7,8 @@ CREATE TABLE members (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE products (
+CREATE TABLE products
+(
     id uuid,
     name varchar(128),
     ean varchar(128),
@@ -15,7 +17,8 @@ CREATE TABLE products (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE orders (
+CREATE TABLE orders
+(
     id uuid,
     member_id uuid,
     amount decimal,
@@ -23,16 +26,20 @@ CREATE TABLE orders (
     CONSTRAINT member_id FOREIGN KEY (member_id) REFERENCES members (id)
 );
 
-CREATE TABLE order_items (
+CREATE TABLE order_items
+(
+    id uuid,
     order_id uuid,
     product_id uuid,
+    quantity int,
     amount int,
-    PRIMARY KEY (order_id, product_id),
-    CONSTRAINT order_id FOREIGN KEY (order_id) REFERENCES orders (id),
-    CONSTRAINT product_id FOREIGN KEY (product_id) REFERENCES products (id)
+    PRIMARY KEY (id),
+    CONSTRAINT order_id FOREIGN KEY(order_id) REFERENCES orders(id),
+    CONSTRAINT product_id FOREIGN KEY(product_id) REFERENCES products(id)
 );
 
-CREATE TABLE categories (
+CREATE TABLE categories
+(
     id uuid,
     name varchar(128),
     parent_id uuid,

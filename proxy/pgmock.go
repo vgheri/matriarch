@@ -276,7 +276,7 @@ func (m *PGMock) FinaliseExecuteSequence(command string, results []*pgconn.Resul
 		switch command {
 		case "INSERT":
 			cmdCompleteMsg.CommandTag = []byte(fmt.Sprintf("%s 0 %d", command, result.CommandTag.RowsAffected()))
-		case "DELETE":
+		case "DELETE", "UPDATE":
 			cmdCompleteMsg.CommandTag = []byte(fmt.Sprintf("%s %d", command, result.CommandTag.RowsAffected()))
 		default:
 			cmdCompleteMsg.CommandTag = []byte(fmt.Sprintf("%s %d", command, result.CommandTag.RowsAffected()))
