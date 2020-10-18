@@ -498,7 +498,7 @@ func processSelectStmt(s *pg.SelectStmt, q QueryMessage, mock *proxy.PGMock, clu
 				case *pg.String:
 					fields = append(fields, columnElem.Str)
 				default:
-					return fmt.Errorf("left expression of where clause must be a column name")
+					return fmt.Errorf("left expression of where clause must be contain a column name")
 				}
 			}
 			switch len(fields) {
@@ -528,44 +528,59 @@ func processSelectStmt(s *pg.SelectStmt, q QueryMessage, mock *proxy.PGMock, clu
 		}
 	case *pg.BoolExpr:
 		// 0 = AND, 1 = OR, 2 NOT. See https://doxygen.postgresql.org/primnodes_8h.html#a27f637bf3e2c33cc8e48661a8864c7af
-		// if ss.Boolop > 0 {
-		// 	return fmt.Errorf("Only AND expression is allowed as a boolean operator in DELETE statements")
-		// }
-		// for _, argItem := range ss.Args.Items {
-		// 	switch arg := argItem.(type) {
-		// 	case *pg.A_Expr:
-		// 		for _, expr := range arg.Name.Items {
-		// 			switch exprElem := expr.(type) {
-		// 			case *pg.String:
-		// 				if exprElem.Str != "=" {
-		// 					return fmt.Errorf("only equal expression is allowed in DELETE statements")
-		// 				}
-		// 			}
-		// 		}
-		// 		switch lexpr := arg.Lexpr.(type) {
-		// 		case *pg.ColumnRef:
-		// 			for _, column := range lexpr.Fields.Items {
-		// 				switch columnElem := column.(type) {
-		// 				case *pg.String:
-		// 					whereClauseColumns = append(whereClauseColumns, columnElem.Str)
-		// 				default:
-		// 					return fmt.Errorf("left expression of where clause must be a column name")
-		// 				}
-		// 			}
-		// 		}
-		// 		switch rexpr := arg.Rexpr.(type) {
-		// 		case *pg.A_Const:
-		// 			switch rexprConst := rexpr.Val.(type) {
-		// 			case *pg.String:
-		// 				whereClauseValues = append(whereClauseValues, rexprConst.Str)
-		// 			case *pg.Integer:
-		// 				whereClauseValues = append(whereClauseValues, fmt.Sprintf("%d", rexprConst.Ival))
-		// 			default:
-		// 				return fmt.Errorf("unknown constant type in where clause. String and Integer only")
-		// 			}
-		// 		}
-		// 	}
-		// }
+		if ss.Boolop > 0 {
+			return fmt.Errorf("Only AND expression is allowed as a boolean operator in the WHERE clause")
+		}
+		var tableName string
+		for i, argItem := range ss.Args.Items {
+			switch arg := argItem.(type) {
+			case *pg.A_Expr:
+				switch lexpr := arg.Lexpr.(type) {
+				case *pg.ColumnRef:
+					var fields []string
+					for _, column := range lexpr.Fields.Items {
+						switch columnElem := column.(type) {
+						case *pg.String:
+							fields = append(fields, columnElem.Str)
+						default:
+							return fmt.Errorf("left expression of where clause must contain a column name")
+						}
+					}
+					switch len(fields) {
+					case 1:
+						tableName = relations[0]
+						whereClauseColumns[tableName] = append(whereClauseColumns[tableName], fields[0])
+					case 2:
+						tableName = fields[0]
+						if i == 0 && relations[0] != tableName {
+							return fmt.Errorf("the first where clause should be related to the first table in the FROM list")
+						}
+						whereClauseColumns[tableName] = append(whereClauseColumns[tableName], fields[1])
+					default:
+						return fmt.Errorf("to specify clauses, the form table.column_name is only supported")
+					}
+				}
+				for _, expr := range arg.Name.Items {
+					switch exprElem := expr.(type) {
+					case *pg.String:
+						if tableName == relations[0] && exprElem.Str != "=" {
+							return fmt.Errorf("only equal expression is allowed in the WHERE clause")
+						}
+					}
+				}
+				switch rexpr := arg.Rexpr.(type) {
+				case *pg.A_Const:
+					switch rexprConst := rexpr.Val.(type) {
+					case *pg.String:
+						whereClauseValues[tableName] = append(whereClauseValues[tableName], rexprConst.Str)
+					case *pg.Integer:
+						whereClauseValues[tableName] = append(whereClauseValues[tableName], fmt.Sprintf("%d", rexprConst.Ival))
+					default:
+						return fmt.Errorf("unknown constant type in where clause. String and Integer only")
+					}
+				}
+			}
+		}
 	default:
 		return fmt.Errorf("expecting a list of columns in where clause, found unknown expression")
 	}
