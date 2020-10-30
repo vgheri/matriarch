@@ -441,6 +441,94 @@ func walkJoinExpressionTree(node ast.Node, relations *[]string) error {
 	return nil
 }
 
+func parseWhereAExpression(node *pg.A_Expr, relations []string) (table, column, value string, err error) {
+	if node.Kind != 0 {
+		return table, column, value, fmt.Errorf("expression kind must be 0")
+	}
+	switch lexpr := node.Lexpr.(type) {
+	case *pg.ColumnRef:
+		var fields []string
+		for _, col := range lexpr.Fields.Items {
+			switch columnElem := col.(type) {
+			case *pg.String:
+				fields = append(fields, columnElem.Str)
+			default:
+				return table, column, value, fmt.Errorf("left expression of where clause must contain a column name")
+			}
+		}
+		switch len(fields) {
+		case 1:
+			table = relations[0]
+			column = fields[0]
+		case 2:
+			table = fields[0]
+			column = fields[1]
+		default:
+			return table, column, value, fmt.Errorf("only the form table.column_name is currently supported to specify clauses")
+		}
+		for _, expr := range node.Name.Items {
+			switch exprElem := expr.(type) {
+			case *pg.String:
+				if table == relations[0] && exprElem.Str != "=" {
+					return table, column, value,
+						fmt.Errorf("only equal expression is allowed in WHERE clauses for columns part of the primary vindex of the first table of the SELECT FROM statement")
+				}
+			}
+		}
+		switch rexpr := node.Rexpr.(type) {
+		case *pg.A_Const:
+			switch rexprConst := rexpr.Val.(type) {
+			case *pg.String:
+				value = rexprConst.Str
+			case *pg.Float:
+				value = rexprConst.Str
+			case *pg.Integer:
+				value = fmt.Sprintf("%d", rexprConst.Ival)
+			default:
+				return table, column, value, fmt.Errorf("unknown constant type in where clause. Only type string and integer are supported")
+			}
+		}
+	}
+	return table, column, value, nil
+}
+
+func walkWhereExpressionTree(node ast.Node, relations []string, whereClauseColumns, whereClauseValues map[string][]string) error {
+	switch ss := node.(type) {
+	case *pg.BoolExpr:
+		for _, argItem := range ss.Args.Items {
+			var err error
+			switch arg := argItem.(type) {
+			case *pg.A_Expr:
+				table, column, value, err := parseWhereAExpression(arg, relations)
+				if err != nil {
+					return err
+				}
+				// 0 = AND, 1 = OR, 2 NOT. See https://doxygen.postgresql.org/primnodes_8h.html#a27f637bf3e2c33cc8e48661a8864c7af
+				if ss.Boolop > 0 && table == relations[0] {
+					return fmt.Errorf("Only AND expression is allowed as a boolean operator in the WHERE clause")
+				}
+				whereClauseColumns[table] = append(whereClauseColumns[table], column)
+				whereClauseValues[table] = append(whereClauseValues[table], value)
+			case *pg.BoolExpr:
+				err = walkWhereExpressionTree(arg, relations, whereClauseColumns, whereClauseValues)
+			}
+			if err != nil {
+				return err
+			}
+		}
+	case *pg.A_Expr:
+		table, column, value, err := parseWhereAExpression(ss, relations)
+		if err != nil {
+			return err
+		}
+		whereClauseColumns[table] = append(whereClauseColumns[table], column)
+		whereClauseValues[table] = append(whereClauseValues[table], value)
+	default:
+		return fmt.Errorf("expecting a list of columns in where clause, found unknown expression")
+	}
+	return nil
+}
+
 // Limitations: all primary vindex columns must be present and must be the only fields part of the where clause list of columns
 // Column names must be used as left expression (i.e. order_id = '123342')
 // Expressions allowed in the where clause: =
@@ -455,135 +543,19 @@ func walkJoinExpressionTree(node ast.Node, relations *[]string) error {
 //    5.2 in, for on each value and treat each iteration as a = expression -> not yet supported
 func processSelectStmt(s *pg.SelectStmt, q QueryMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema) error {
 	var relations []string
-	// for _, fromClause := range s.FromClause.Items {
-	// 	switch fc := fromClause.(type) {
-	// 	case *pg.RangeVar:
-	// 		relations = append(relations, *fc.Relname)
-	// 	case *pg.JoinExpr:
-	// 		switch jlarg := fc.Larg.(type) {
-	// 		case *pg.RangeVar:
-	// 			relations = append(relations, *jlarg.Relname)
-	// 		default:
-	// 			return fmt.Errorf("cannot parse FROM clause for SELECT JOIN statement")
-	// 		}
-	// 		switch jrarg := fc.Rarg.(type) {
-	// 		case *pg.RangeVar:
-	// 			relations = append(relations, *jrarg.Relname)
-	// 		default:
-	// 			return fmt.Errorf("cannot parse FROM clause for SELECT JOIN statement")
-	// 		}
-	// 	}
-	// }
 	for _, fromClause := range s.FromClause.Items {
 		walkJoinExpressionTree(fromClause, &relations)
 	}
 	var whereClauseColumns = make(map[string][]string)
 	var whereClauseValues = make(map[string][]string)
-	switch ss := s.WhereClause.(type) {
-	case *pg.A_Expr:
-		var tableName string
-		for _, expr := range ss.Name.Items {
-			switch exprElem := expr.(type) {
-			case *pg.String:
-				if exprElem.Str != "=" {
-					return fmt.Errorf("only equal expression is allowed in DELETE statements")
-				}
-			}
-		}
-		switch lexpr := ss.Lexpr.(type) {
-		case *pg.ColumnRef:
-			var fields []string
-			for _, column := range lexpr.Fields.Items {
-				switch columnElem := column.(type) {
-				case *pg.String:
-					fields = append(fields, columnElem.Str)
-				default:
-					return fmt.Errorf("left expression of where clause must be contain a column name")
-				}
-			}
-			switch len(fields) {
-			case 1:
-				tableName = relations[0]
-				whereClauseColumns[tableName] = append(whereClauseColumns[tableName], fields[0])
-			case 2:
-				tableName = fields[0]
-				if relations[0] != tableName {
-					return fmt.Errorf("the first where clause should be related to the first table in the FROM list")
-				}
-				whereClauseColumns[tableName] = append(whereClauseColumns[tableName], fields[1])
-			default:
-				return fmt.Errorf("to specify clauses, the form table.column_name is only supported")
-			}
-		}
-		switch rexpr := ss.Rexpr.(type) {
-		case *pg.A_Const:
-			switch rexprConst := rexpr.Val.(type) {
-			case *pg.String:
-				whereClauseValues[tableName] = append(whereClauseValues[tableName], rexprConst.Str)
-			case *pg.Integer:
-				whereClauseValues[tableName] = append(whereClauseValues[tableName], fmt.Sprintf("%d", rexprConst.Ival))
-			default:
-				return fmt.Errorf("unknown constant type in where clause. String and Integer only")
-			}
-		}
-	case *pg.BoolExpr:
-		// 0 = AND, 1 = OR, 2 NOT. See https://doxygen.postgresql.org/primnodes_8h.html#a27f637bf3e2c33cc8e48661a8864c7af
-		if ss.Boolop > 0 {
-			return fmt.Errorf("Only AND expression is allowed as a boolean operator in the WHERE clause")
-		}
-		var tableName string
-		for i, argItem := range ss.Args.Items {
-			switch arg := argItem.(type) {
-			case *pg.A_Expr:
-				switch lexpr := arg.Lexpr.(type) {
-				case *pg.ColumnRef:
-					var fields []string
-					for _, column := range lexpr.Fields.Items {
-						switch columnElem := column.(type) {
-						case *pg.String:
-							fields = append(fields, columnElem.Str)
-						default:
-							return fmt.Errorf("left expression of where clause must contain a column name")
-						}
-					}
-					switch len(fields) {
-					case 1:
-						tableName = relations[0]
-						whereClauseColumns[tableName] = append(whereClauseColumns[tableName], fields[0])
-					case 2:
-						tableName = fields[0]
-						if i == 0 && relations[0] != tableName {
-							return fmt.Errorf("the first where clause should be related to the first table in the FROM list")
-						}
-						whereClauseColumns[tableName] = append(whereClauseColumns[tableName], fields[1])
-					default:
-						return fmt.Errorf("to specify clauses, the form table.column_name is only supported")
-					}
-				}
-				for _, expr := range arg.Name.Items {
-					switch exprElem := expr.(type) {
-					case *pg.String:
-						if tableName == relations[0] && exprElem.Str != "=" {
-							return fmt.Errorf("only equal expression is allowed in the WHERE clause")
-						}
-					}
-				}
-				switch rexpr := arg.Rexpr.(type) {
-				case *pg.A_Const:
-					switch rexprConst := rexpr.Val.(type) {
-					case *pg.String:
-						whereClauseValues[tableName] = append(whereClauseValues[tableName], rexprConst.Str)
-					case *pg.Integer:
-						whereClauseValues[tableName] = append(whereClauseValues[tableName], fmt.Sprintf("%d", rexprConst.Ival))
-					default:
-						return fmt.Errorf("unknown constant type in where clause. String and Integer only")
-					}
-				}
-			}
-		}
-	default:
-		return fmt.Errorf("expecting a list of columns in where clause, found unknown expression")
+	err := walkWhereExpressionTree(s.WhereClause, relations, whereClauseColumns, whereClauseValues)
+	if err != nil {
+		return err
 	}
+
+	fmt.Println(whereClauseColumns)
+	fmt.Println(whereClauseValues)
+
 	// build list of indexes of select stmt where clause columns that match the vschema table primary vindex columns.
 	// e.g. select * from orders where id = 'abcd' -> primary vindex for table orders is `id`,
 	// so the result will be [0].

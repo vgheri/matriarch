@@ -2,22 +2,19 @@ PRIORITY TODO:
 
 Features
 
-- Implement SELECT statement
-  - Build a map of clauses (left argument, expression, right argument) per table involved, and use this to process SELECT message and detect errors.
-  - pg.BoolExpr should be capable of handling a variable number of clauses and any logical expression (it is now only capable of managing two clauses lied by an AND operation)
-- Process message doesn't return any error, but sends a message to the client on error
+- ProcessMessage
+  - It must not return any error, but send a message to the client on error
+  - Split ProcessMessage into two parts: one is parsing, the other message sending
 - Create struct Proxy which has ProcessMessage and SendResult as methods
-- Split ProcessMessage into two parts: one is parsing, the other message sending
 
 Bugs
 
-- Sending back an error to main loop doesn't crash the main process
 - Prevent UPDATE statement to update columns part of the primary vindex
 
 NORMAL TODO:
 
+- SELECT should decompose query to be see if it's possible to look for the information in the right shard for each table (today we only use the first table to select a shard)
 - Support addressing relations with the form catalog.schema.relation
-- Implement F {"Type":"CancelRequest","ProcessID":17399,"SecretKey":1755195487}
 - Support `in` operator in where clause for UPDATE/DELETE/SELECT statements
 - Implement INSERT statement
   - query_processor.Process:
