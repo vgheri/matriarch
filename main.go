@@ -57,25 +57,31 @@ func main() {
 		// wait for a new client connection
 		clientConn, err := ln.Accept()
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			continue
 		}
 		// each client connection lifecycle is managed in its own goroutine
 		go func(clientConn net.Conn) {
 			mock := proxy.NewMock(clientConn)
 			err = mock.HandleConnectionPhase()
 			if err != nil {
-				log.Fatalf("unable to mock pgsql and accept the request: %v", err)
+				fmt.Printf("unable to mock pgsql and accept the request: %v", err)
+				return
 			}
 			for {
-				// 3. For each incoming client connection, parse the query to identify the shard(s) involved and create a proxy for each backend involved, then send the query
 				msg, err := mock.Receive()
 				if err != nil {
-					log.Fatalf("cannot receive message from client: %v", err)
+					fmt.Printf("cannot receive message from client: %v", err)
+					mock.SendError(err)
+					return
 				}
 
+				// For each incoming client connection, parse the query to identify the shard(s) involved and create a proxy for each backend involved, then send the query
 				err = Process(msg, mock, cluster, vschema)
 				if err != nil {
 					fmt.Printf("cannot process message: %v", err)
+					mock.SendError(err)
+					return
 				}
 				if mock.IsClosed() {
 					return

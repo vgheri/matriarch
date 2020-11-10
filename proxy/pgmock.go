@@ -8,8 +8,6 @@ import (
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgmock"
 	"github.com/jackc/pgproto3/v2"
-	// pg_query "github.com/lfittl/pg_query_go"
-	// nodes "github.com/lfittl/pg_query_go/nodes"
 )
 
 type PGMock struct {
@@ -151,7 +149,16 @@ func (m *PGMock) Receive() (pgproto3.FrontendMessage, error) {
 	return msg, nil
 }
 
-func (m *PGMock) SendErrorMessage(err *pgconn.PgError) error {
+// SendError sends an error message to the SQL client.
+// The function can manage either a generic error or a Postgres specific one
+func (m *PGMock) SendError(err error) error {
+	if pgErr, ok := err.(*pgconn.PgError); ok {
+		return m.SendPGSQLErrorMessage(pgErr)
+	}
+	return m.SendMatriarchErrorMessage(err)
+}
+
+func (m *PGMock) SendPGSQLErrorMessage(err *pgconn.PgError) error {
 	msg := &pgproto3.ErrorResponse{
 		Severity:         err.Severity,
 		Code:             err.Code,
@@ -174,67 +181,13 @@ func (m *PGMock) SendErrorMessage(err *pgconn.PgError) error {
 	return m.backend.Send(msg)
 }
 
-func (m *PGMock) FinaliseInsertSequence(results []*pgconn.Result) error {
-	for _, result := range results {
-		// Send RowDescription and then DataRow messages
-		// B {"Type":"RowDescription","Fields":[{"Name":"id","TableOID":16386,"TableAttributeNumber":1,"DataTypeOID":23,"DataTypeSize":4,"TypeModifier":-1,"Format":0}]}
-		rowDescriptionMsg := &pgproto3.RowDescription{
-			Fields: result.FieldDescriptions,
-		}
-		// DEBUG
-		buf, err := json.Marshal(rowDescriptionMsg)
-		if err != nil {
-			return err
-		}
-		fmt.Println("B", string(buf))
-		if err := m.backend.Send(rowDescriptionMsg); err != nil {
-			return fmt.Errorf("cannot send RowDescription message to client: %w", err)
-		}
-		// B {"Type":"DataRow","Values":[{"text":"5"}]}
-		for _, row := range result.Rows {
-			dataRowMsg := &pgproto3.DataRow{
-				Values: row,
-			}
-			// DEBUG
-			buf, err := json.Marshal(dataRowMsg)
-			if err != nil {
-				return err
-			}
-			fmt.Println("B", string(buf))
-			if err := m.backend.Send(dataRowMsg); err != nil {
-				return fmt.Errorf("cannot send DataRow message to client: %w", err)
-			}
-		}
-		// Send command complete
-		// B {"Type":"CommandComplete","CommandTag":"INSERT 0 1"}
-		cmdCompleteMsg := &pgproto3.CommandComplete{
-			CommandTag: []byte(fmt.Sprintf("INSERT 0 %d", result.CommandTag.RowsAffected())),
-		}
-		// DEBUG
-		buf, err = json.Marshal(cmdCompleteMsg)
-		if err != nil {
-			return err
-		}
-		fmt.Println("B", string(buf))
-		if err := m.backend.Send(cmdCompleteMsg); err != nil {
-			return fmt.Errorf("cannot send CommandComplete message to client: %w", err)
-		}
+func (m *PGMock) SendMatriarchErrorMessage(err error) error {
+	msg := &pgproto3.ErrorResponse{
+		Severity: "ERROR",
+		Code:     "XX000",
+		Message:  err.Error(),
 	}
-	// Send ReadyForQuery
-	// B {"Type":"ReadyForQuery","TxStatus":"I"}
-	readForQueryMsg := &pgproto3.ReadyForQuery{
-		TxStatus: 'I',
-	}
-	// DEBUG
-	buf, err := json.Marshal(readForQueryMsg)
-	if err != nil {
-		return err
-	}
-	fmt.Println("B", string(buf))
-	if err := m.backend.Send(readForQueryMsg); err != nil {
-		return fmt.Errorf("cannot send ReadForQuery message to client: %w", err)
-	}
-	return nil
+	return m.backend.Send(msg)
 }
 
 func (m *PGMock) FinaliseExecuteSequence(command string, results []*pgconn.Result) error {

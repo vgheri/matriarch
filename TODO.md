@@ -2,10 +2,11 @@ PRIORITY TODO:
 
 Features
 
+- Logging: centralize logging and add metadata such as level, connection identifier etc...
 - ProcessMessage
-  - It must not return any error, but send a message to the client on error
   - Split ProcessMessage into two parts: one is parsing, the other message sending
 - Create struct Proxy which has ProcessMessage and SendResult as methods
+- Divide in frontend and backend: frontend manages connections, backends is PostgreSQL specific
 
 Bugs
 

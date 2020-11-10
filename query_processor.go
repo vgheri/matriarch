@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgconn"
 	"github.com/jackc/pgproto3/v2"
 
 	pg_query "github.com/lfittl/pg_query_go"
@@ -18,6 +17,7 @@ import (
 	"github.com/vgheri/matriarch/proxy"
 )
 
+// Process executes the SQL contained in the message by choosing the appropriate shard
 func Process(msg pgproto3.FrontendMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema) error {
 	buf, err := json.Marshal(msg)
 	if err != nil {
@@ -133,10 +133,6 @@ func processInsertStmt(s *pg.InsertStmt, q QueryMessage, mock *proxy.PGMock, clu
 				defer res.Close()
 				results, err := res.ReadAll()
 				if err != nil {
-					if pgErr, ok := err.(*pgconn.PgError); ok {
-						mock.SendErrorMessage(pgErr)
-						return nil
-					}
 					return err
 				}
 				return mock.FinaliseExecuteSequence("INSERT", results)
@@ -275,10 +271,6 @@ func processDeleteStmt(s *pg.DeleteStmt, q QueryMessage, mock *proxy.PGMock, clu
 	defer res.Close()
 	results, err := res.ReadAll()
 	if err != nil {
-		if pgErr, ok := err.(*pgconn.PgError); ok {
-			mock.SendErrorMessage(pgErr)
-			return nil
-		}
 		return err
 	}
 	return mock.FinaliseExecuteSequence("DELETE", results)
@@ -409,10 +401,6 @@ func processUpdateStmt(s *pg.UpdateStmt, q QueryMessage, mock *proxy.PGMock, clu
 	defer res.Close()
 	results, err := res.ReadAll()
 	if err != nil {
-		if pgErr, ok := err.(*pgconn.PgError); ok {
-			mock.SendErrorMessage(pgErr)
-			return nil
-		}
 		return err
 	}
 	return mock.FinaliseExecuteSequence("UPDATE", results)
@@ -590,10 +578,6 @@ func processSelectStmt(s *pg.SelectStmt, q QueryMessage, mock *proxy.PGMock, clu
 	defer res.Close()
 	results, err := res.ReadAll()
 	if err != nil {
-		if pgErr, ok := err.(*pgconn.PgError); ok {
-			mock.SendErrorMessage(pgErr)
-			return nil
-		}
 		return err
 	}
 	return mock.FinaliseExecuteSequence("SELECT", results)
