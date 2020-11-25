@@ -2,7 +2,6 @@ PRIORITY TODO:
 
 Features
 
-- Logging: centralize logging and add metadata such as level, connection identifier etc...
 - ProcessMessage
   - Split ProcessMessage into two parts: one is parsing, the other message sending
 - Create struct Proxy which has ProcessMessage and SendResult as methods
@@ -10,20 +9,18 @@ Features
 
 Bugs
 
-- Prevent UPDATE statement to update columns part of the primary vindex
-
-NORMAL TODO:
+TODO:
 
 - SELECT should decompose query to be see if it's possible to look for the information in the right shard for each table (today we only use the first table to select a shard)
 - Support addressing relations with the form catalog.schema.relation
 - Support `in` operator in where clause for UPDATE/DELETE/SELECT statements
-- Implement INSERT statement
-  - query_processor.Process:
-    - Investigate how we can use either ExecParams either the low level connection to PGSQL by hijacking the connection
 - Add routine that listens to signals such as SIGTERM or SIGKILL and which kills the mock
 - Add connection pooling to main.go to manage frontend and backend connections
 - Implement secondary indexes
 - Implement CancelRequest statement -> `F {"Type":"CancelRequest","ProcessID":17399,"SecretKey":1755195487}`
+- Implement psql commands
+  - \dt
+  - ...
 
 ## Testing
 

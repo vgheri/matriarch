@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/go-kit/kit/log"
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgmock"
 	"github.com/jackc/pgproto3/v2"
@@ -14,14 +15,16 @@ type PGMock struct {
 	backend          *pgproto3.Backend
 	frontendConn     net.Conn
 	connectionClosed bool
+	logger           log.Logger
 }
 
-func NewMock(frontendConn net.Conn) *PGMock {
+func NewMock(frontendConn net.Conn, logger log.Logger) *PGMock {
 	backend := pgproto3.NewBackend(pgproto3.NewChunkReader(frontendConn), frontendConn)
 
 	mock := &PGMock{
 		backend:      backend,
 		frontendConn: frontendConn,
+		logger:       logger,
 	}
 	return mock
 }
@@ -54,7 +57,7 @@ func (m *PGMock) AcceptUnauthenticatedConnRequestSteps() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("B", string(buf))
+	m.logger.Log("msg", fmt.Sprintf("B %s", string(buf)))
 	steps := []pgmock.Step{
 		pgmock.SendMessage(&pgproto3.AuthenticationOk{}),
 		pgmock.SendMessage(&pgproto3.ParameterStatus{Name: "client_encoding", Value: "UNICODE"}),
@@ -88,7 +91,7 @@ func (m *PGMock) ReadClientConn() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("F", string(buf))
+	m.logger.Log("msg", fmt.Sprintf("F %s", string(buf)))
 
 	if _, ok := startupMessage.(*pgproto3.SSLRequest); ok {
 		_, err = m.frontendConn.Write([]byte("N"))
@@ -145,17 +148,37 @@ func (m *PGMock) Receive() (pgproto3.FrontendMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot marshal message into JSON: %w", err)
 	}
-	fmt.Println("F", string(buf))
+	m.logger.Log("msg", fmt.Sprintf("F %s", string(buf)))
 	return msg, nil
 }
 
 // SendError sends an error message to the SQL client.
 // The function can manage either a generic error or a Postgres specific one
 func (m *PGMock) SendError(err error) error {
+	var sendErr error
 	if pgErr, ok := err.(*pgconn.PgError); ok {
-		return m.SendPGSQLErrorMessage(pgErr)
+		if sendErr = m.SendPGSQLErrorMessage(pgErr); sendErr != nil {
+			return sendErr
+		}
+	} else {
+		if sendErr = m.SendMatriarchErrorMessage(err); sendErr != nil {
+			return sendErr
+		}
 	}
-	return m.SendMatriarchErrorMessage(err)
+	// Send ReadyForQuery
+	readForQueryMsg := &pgproto3.ReadyForQuery{
+		TxStatus: 'I',
+	}
+	// DEBUG
+	buf, err := json.Marshal(readForQueryMsg)
+	if err != nil {
+		return err
+	}
+	m.logger.Log("msg", fmt.Sprintf("B %s", string(buf)))
+	if err := m.backend.Send(readForQueryMsg); err != nil {
+		return fmt.Errorf("cannot send ReadForQuery message to client: %w", err)
+	}
+	return nil
 }
 
 func (m *PGMock) SendPGSQLErrorMessage(err *pgconn.PgError) error {
@@ -193,7 +216,6 @@ func (m *PGMock) SendMatriarchErrorMessage(err error) error {
 func (m *PGMock) FinaliseExecuteSequence(command string, results []*pgconn.Result) error {
 	for _, result := range results {
 		// Send RowDescription and then DataRow messages
-		// B {"Type":"RowDescription","Fields":[{"Name":"id","TableOID":16386,"TableAttributeNumber":1,"DataTypeOID":23,"DataTypeSize":4,"TypeModifier":-1,"Format":0}]}
 		if len(result.FieldDescriptions) > 0 {
 			rowDescriptionMsg := &pgproto3.RowDescription{
 				Fields: result.FieldDescriptions,
@@ -203,12 +225,11 @@ func (m *PGMock) FinaliseExecuteSequence(command string, results []*pgconn.Resul
 			if err != nil {
 				return err
 			}
-			fmt.Println("B", string(buf))
+			m.logger.Log("msg", fmt.Sprintf("B %s", string(buf)))
 			if err := m.backend.Send(rowDescriptionMsg); err != nil {
 				return fmt.Errorf("cannot send RowDescription message to client: %w", err)
 			}
 		}
-		// B {"Type":"DataRow","Values":[{"text":"5"}]}
 		for _, row := range result.Rows {
 			dataRowMsg := &pgproto3.DataRow{
 				Values: row,
@@ -218,13 +239,12 @@ func (m *PGMock) FinaliseExecuteSequence(command string, results []*pgconn.Resul
 			if err != nil {
 				return err
 			}
-			fmt.Println("B", string(buf))
+			m.logger.Log("msg", fmt.Sprintf("B %s", string(buf)))
 			if err := m.backend.Send(dataRowMsg); err != nil {
 				return fmt.Errorf("cannot send DataRow message to client: %w", err)
 			}
 		}
 		// Send command complete
-		// B {"Type":"CommandComplete","CommandTag":"INSERT 0 1"}
 		var cmdCompleteMsg pgproto3.CommandComplete
 		switch command {
 		case "INSERT":
@@ -239,13 +259,12 @@ func (m *PGMock) FinaliseExecuteSequence(command string, results []*pgconn.Resul
 		if err != nil {
 			return err
 		}
-		fmt.Println("B", string(buf))
+		m.logger.Log("msg", fmt.Sprintf("B %s", string(buf)))
 		if err := m.backend.Send(&cmdCompleteMsg); err != nil {
 			return fmt.Errorf("cannot send CommandComplete message to client: %w", err)
 		}
 	}
 	// Send ReadyForQuery
-	// B {"Type":"ReadyForQuery","TxStatus":"I"}
 	readForQueryMsg := &pgproto3.ReadyForQuery{
 		TxStatus: 'I',
 	}
@@ -254,7 +273,7 @@ func (m *PGMock) FinaliseExecuteSequence(command string, results []*pgconn.Resul
 	if err != nil {
 		return err
 	}
-	fmt.Println("B", string(buf))
+	m.logger.Log("msg", fmt.Sprintf("B %s", string(buf)))
 	if err := m.backend.Send(readForQueryMsg); err != nil {
 		return fmt.Errorf("cannot send ReadForQuery message to client: %w", err)
 	}

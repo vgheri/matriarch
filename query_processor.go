@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"strings"
 
+	"github.com/go-kit/kit/log"
 	"github.com/jackc/pgproto3/v2"
 
 	pg_query "github.com/lfittl/pg_query_go"
@@ -18,7 +20,7 @@ import (
 )
 
 // Process executes the SQL contained in the message by choosing the appropriate shard
-func Process(msg pgproto3.FrontendMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema) error {
+func Process(msg pgproto3.FrontendMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema, logger log.Logger) error {
 	buf, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("cannot marshal message into JSON: %w", err)
@@ -33,7 +35,7 @@ func Process(msg pgproto3.FrontendMessage, mock *proxy.PGMock, cluster *Cluster,
 			return fmt.Errorf("cannot decode frontend Query message into QueryMessage struct: %w", err)
 		}
 		res, _ := pg_query.ParseToJSON(q.String)
-		fmt.Println(res)
+		logger.Log("msg", res)
 		stmts, err := engine.NewParser().Parse(strings.NewReader(q.String))
 		if err != nil {
 			return fmt.Errorf("cannot parse frontend Query message: %w", err)
@@ -41,19 +43,19 @@ func Process(msg pgproto3.FrontendMessage, mock *proxy.PGMock, cluster *Cluster,
 		for _, stmt := range stmts {
 			switch s := stmt.Raw.Stmt.(type) {
 			case *pg.InsertStmt:
-				if err = processInsertStmt(s, q, mock, cluster, vschema); err != nil {
+				if err = processInsertStmt(s, q, mock, cluster, vschema, logger); err != nil {
 					return err
 				}
 			case *pg.DeleteStmt:
-				if err = processDeleteStmt(s, q, mock, cluster, vschema); err != nil {
+				if err = processDeleteStmt(s, q, mock, cluster, vschema, logger); err != nil {
 					return err
 				}
 			case *pg.UpdateStmt:
-				if err = processUpdateStmt(s, q, mock, cluster, vschema); err != nil {
+				if err = processUpdateStmt(s, q, mock, cluster, vschema, logger); err != nil {
 					return err
 				}
 			case *pg.SelectStmt:
-				if err = processSelectStmt(s, q, mock, cluster, vschema); err != nil {
+				if err = processSelectStmt(s, q, mock, cluster, vschema, logger); err != nil {
 					return err
 				}
 			default:
@@ -72,7 +74,7 @@ func appendToConcatenate(concat, val string) string {
 }
 
 // Limitations: primary vindex columns must be present in the list of values to insert
-func processInsertStmt(s *pg.InsertStmt, q QueryMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema) error {
+func processInsertStmt(s *pg.InsertStmt, q QueryMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema, logger log.Logger) error {
 	relation := *s.Relation.Relname
 	var columns []string
 	for _, item := range s.Cols.Items {
@@ -99,7 +101,7 @@ func processInsertStmt(s *pg.InsertStmt, q QueryMessage, mock *proxy.PGMock, clu
 	if len(indexes) != len(primaryIndexColumns) {
 		return fmt.Errorf("cannot insert row without all primary vindex columns being present in the insert statement")
 	}
-	fmt.Printf("DEBUG: Relation: %s, columns: %s\n", relation, columns)
+	logger.Log("msg", fmt.Sprintf("relation: %s, columns: %s", relation, columns))
 	switch ss := s.SelectStmt.(type) {
 	case *pg.SelectStmt:
 		for _, v := range ss.ValuesLists.Items {
@@ -128,7 +130,7 @@ func processInsertStmt(s *pg.InsertStmt, q QueryMessage, mock *proxy.PGMock, clu
 				if err != nil {
 					return fmt.Errorf("cannot select destination shard for insert statement: %w", err)
 				}
-				fmt.Printf("DEBUG: Shard selected: %s\n", target.Name)
+				logger.Log("msg", fmt.Sprintf("shard selected: %s", target.Name))
 				res := target.Conn.Exec(context.Background(), q.String)
 				defer res.Close()
 				results, err := res.ReadAll()
@@ -157,7 +159,7 @@ func processInsertStmt(s *pg.InsertStmt, q QueryMessage, mock *proxy.PGMock, clu
 // 3. if expr is
 //    3.1 =, build the concatenate, select the shard and issue the delete command
 //    3.2 in, for on each value and treat each iteration as a = expression -> not yet supported
-func processDeleteStmt(s *pg.DeleteStmt, q QueryMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema) error {
+func processDeleteStmt(s *pg.DeleteStmt, q QueryMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema, logger log.Logger) error {
 	relation := *s.Relation.Relname
 	var whereClauseColumns []string
 	var whereClauseValues []string
@@ -256,7 +258,7 @@ func processDeleteStmt(s *pg.DeleteStmt, q QueryMessage, mock *proxy.PGMock, clu
 	if len(indexes) != len(whereClauseColumns) {
 		return fmt.Errorf("cannot execute delete statement without all primary vindex columns being present in the where clause")
 	}
-	fmt.Printf("DEBUG: Relation: %s, columns: %s\n", relation, whereClauseColumns)
+	logger.Log("msg", fmt.Sprintf("relation: %s, columns: %s", relation, whereClauseColumns))
 	var concat string
 	for _, val := range indexes {
 		whereClauseValue := whereClauseValues[val]
@@ -266,7 +268,7 @@ func processDeleteStmt(s *pg.DeleteStmt, q QueryMessage, mock *proxy.PGMock, clu
 	if err != nil {
 		return fmt.Errorf("cannot select destination shard for delete statement: %w", err)
 	}
-	fmt.Printf("DEBUG: Shard selected: %s\n", target.Name)
+	logger.Log("msg", fmt.Sprintf("shard selected: %s\n", target.Name))
 	res := target.Conn.Exec(context.Background(), q.String)
 	defer res.Close()
 	results, err := res.ReadAll()
@@ -287,7 +289,16 @@ func processDeleteStmt(s *pg.DeleteStmt, q QueryMessage, mock *proxy.PGMock, clu
 // 3. if expr is
 //    3.1 =, build the concatenate, select the shard and issue the delete command
 //    3.2 in, for on each value and treat each iteration as a = expression -> not yet supported
-func processUpdateStmt(s *pg.UpdateStmt, q QueryMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema) error {
+func processUpdateStmt(s *pg.UpdateStmt, q QueryMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema, logger log.Logger) error {
+	var updatedColumns []string
+	for _, argItem := range s.TargetList.Items {
+		switch arg := argItem.(type) {
+		case *pg.ResTarget:
+			updatedColumns = append(updatedColumns, *arg.Name)
+		default:
+			return fmt.Errorf("unkown type in target list. Expected ResTarget, found %T", arg)
+		}
+	}
 	relation := *s.Relation.Relname
 	var whereClauseColumns []string
 	var whereClauseValues []string
@@ -376,6 +387,9 @@ func processUpdateStmt(s *pg.UpdateStmt, q QueryMessage, mock *proxy.PGMock, clu
 	}
 	var indexes []int
 	for _, pc := range table.GetPrimaryVIndex().Columns {
+		if stringArrayContainsValue(updatedColumns, pc) > -1 {
+			return fmt.Errorf("cannot update column %s because it is part of the primary vindex", pc)
+		}
 		for i, c := range whereClauseColumns {
 			if pc == c {
 				indexes = append(indexes, i)
@@ -386,7 +400,7 @@ func processUpdateStmt(s *pg.UpdateStmt, q QueryMessage, mock *proxy.PGMock, clu
 	if len(indexes) != len(whereClauseColumns) {
 		return fmt.Errorf("cannot execute UPDATE statement without all primary vindex columns being present in the where clause")
 	}
-	fmt.Printf("DEBUG: Relation: %s, columns: %s\n", relation, whereClauseColumns)
+	logger.Log("msg", fmt.Sprintf("relation: %s, columns: %s", relation, whereClauseColumns))
 	var concat string
 	for _, val := range indexes {
 		whereClauseValue := whereClauseValues[val]
@@ -396,7 +410,7 @@ func processUpdateStmt(s *pg.UpdateStmt, q QueryMessage, mock *proxy.PGMock, clu
 	if err != nil {
 		return fmt.Errorf("cannot select destination shard for UPDATE statement: %w", err)
 	}
-	fmt.Printf("DEBUG: Shard selected: %s\n", target.Name)
+	logger.Log("msg", fmt.Sprintf("shard selected: %s\n", target.Name))
 	res := target.Conn.Exec(context.Background(), q.String)
 	defer res.Close()
 	results, err := res.ReadAll()
@@ -529,7 +543,7 @@ func walkWhereExpressionTree(node ast.Node, relations []string, whereClauseColum
 // 5. if expr is
 //    5.1 =, build the concatenate, select the shard and issue the delete command
 //    5.2 in, for on each value and treat each iteration as a = expression -> not yet supported
-func processSelectStmt(s *pg.SelectStmt, q QueryMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema) error {
+func processSelectStmt(s *pg.SelectStmt, q QueryMessage, mock *proxy.PGMock, cluster *Cluster, vschema *Vschema, logger log.Logger) error {
 	var relations []string
 	for _, fromClause := range s.FromClause.Items {
 		walkJoinExpressionTree(fromClause, &relations)
@@ -540,9 +554,7 @@ func processSelectStmt(s *pg.SelectStmt, q QueryMessage, mock *proxy.PGMock, clu
 	if err != nil {
 		return err
 	}
-
-	fmt.Println(whereClauseColumns)
-	fmt.Println(whereClauseValues)
+	logger.Log("msg", fmt.Sprintf("where clause columns %s, values %s", whereClauseColumns, whereClauseValues))
 
 	// build list of indexes of select stmt where clause columns that match the vschema table primary vindex columns.
 	// e.g. select * from orders where id = 'abcd' -> primary vindex for table orders is `id`,
@@ -573,7 +585,8 @@ func processSelectStmt(s *pg.SelectStmt, q QueryMessage, mock *proxy.PGMock, clu
 	if err != nil {
 		return fmt.Errorf("cannot select destination shard for delete statement: %w", err)
 	}
-	fmt.Printf("DEBUG: Shard selected: %s\n", target.Name)
+	logger.Log("msg", fmt.Sprintf("shard selected: %s", target.Name))
+
 	res := target.Conn.Exec(context.Background(), q.String)
 	defer res.Close()
 	results, err := res.ReadAll()
@@ -581,4 +594,15 @@ func processSelectStmt(s *pg.SelectStmt, q QueryMessage, mock *proxy.PGMock, clu
 		return err
 	}
 	return mock.FinaliseExecuteSequence("SELECT", results)
+}
+
+// stringArrayContainsValue returns the index of the first occurence of the value in the array,
+// -1 otherwise
+func stringArrayContainsValue(a []string, v string) int {
+	for i, val := range a {
+		if val == v {
+			return i
+		}
+	}
+	return -1
 }
