@@ -288,6 +288,33 @@ func (m *PGMock) FinaliseExecuteSequence(command string, results []*pgconn.Resul
 }
 
 func (p *PGMock) Close() error {
+	closeNotificationMsg := &pgproto3.ErrorResponse{
+		Severity:         "FATAL",
+		Code:             "57P01",
+		Message:          "terminating connection due to administrator command",
+		Detail:           "",
+		Hint:             "",
+		Position:         0,
+		InternalPosition: 0,
+		InternalQuery:    "",
+		Where:            "",
+		SchemaName:       "",
+		TableName:        "",
+		ColumnName:       "",
+		DataTypeName:     "",
+		ConstraintName:   "",
+		File:             "",
+		Line:             0,
+		Routine:          "ProcessInterrupts",
+	}
+	buf, err := json.Marshal(closeNotificationMsg)
+	if err != nil {
+		return err
+	}
+	p.logger.Log("msg", fmt.Sprintf("B %s", string(buf)))
+	if err := p.backend.Send(closeNotificationMsg); err != nil {
+		return fmt.Errorf("cannot send CloseComplete message to client: %w", err)
+	}
 	p.connectionClosed = true
 	return p.frontendConn.Close()
 }

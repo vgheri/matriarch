@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
@@ -33,6 +37,13 @@ func main() {
 
 	logger := configureLogger(options.logLevel)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	// Signals management
+	signals := make(chan os.Signal, 1)
+	quit := make(chan bool, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	go listenForSignals(signals, cancel, level.Warn(logger))
+
 	// read vschema file
 	vschema, err := readVschemaFile(options.vschemaFilePath)
 	if err != nil {
@@ -41,56 +52,92 @@ func main() {
 	}
 
 	hosts := strings.Split(options.hosts, ",")
-	// 1. Create the cluster, opening a TCP connection with each shard
+	// Create the cluster, opening a TCP connection with each shard
 	cluster, err := NewCluster(vschema.Keyspace, hosts)
 	if err != nil {
-		level.Error(logger).Log("msg", fmt.Sprintf("cannot create new Matriarch cluster: %s", err.Error()))
+		level.Error(logger).Log("msg", fmt.Sprintf("cannot create new cluster: %s", err.Error()))
 		os.Exit(1)
 	}
 	for i, s := range cluster.Shards {
 		level.Info(logger).Log("msg", fmt.Sprintf("%d - Connected to %s - %s\n", i, s.Host, s.Name))
 	}
 
-	// 2. Start accepting connections from clients
+	// Start accepting connections from clients
 	ln, err := net.Listen("tcp", options.listenAddress)
 	if err != nil {
 		level.Error(logger).Log("msg", fmt.Sprintf("cannot listen on port %s: %s", options.listenAddress, err.Error()))
 		os.Exit(1)
 	}
+	go func() {
+		<-ctx.Done()
+		level.Info(logger).Log("msg", "stop accepting incoming connections")
+		if err = ln.Close(); err != nil {
+			level.Error(logger).Log("msg", fmt.Sprintf("cannot stop accepting incoming connections: %s", err.Error()))
+		}
+		quit <- true
+	}()
 
 	level.Info(logger).Log("msg", fmt.Sprintf("Matriarch started and listening on port %s", options.listenAddress))
+
+	var wg sync.WaitGroup
+	var quitChannels []chan bool
+	go func() {
+		<-quit
+		for _, c := range quitChannels {
+			c <- true
+		}
+	}()
 	// main control loop
 	for {
 		// wait for a new client connection
 		clientConn, err := ln.Accept()
 		if err != nil {
 			level.Error(logger).Log("msg", fmt.Sprintf("cannot accept incoming client connection: %s", err.Error()))
-			continue
+			break
 		}
 		scopedLogger := level.Debug(logger)
-		if connId, err := uuid.NewRandom(); err == nil {
+		connId, err := uuid.NewRandom()
+		if err == nil {
 			scopedLogger = log.With(scopedLogger, "connection-id", connId.String())
 		}
+		wg.Add(1)
+		quitChan := make(chan bool)
+		quitChannels = append(quitChannels, quitChan)
 		// each client connection lifecycle is managed in its own goroutine
-		go func(clientConn net.Conn) {
-			mock := NewMock(clientConn, scopedLogger)
+		go func(clientConn net.Conn, wg *sync.WaitGroup, q chan bool, logger log.Logger) {
+			mock := NewMock(clientConn, logger)
+			defer func() {
+				if !mock.IsClosed() {
+					if err := mock.Close(); err != nil {
+						logger.Log("msg", fmt.Sprintf("cannot close client connection: %s", err.Error()))
+					}
+				}
+				wg.Done()
+			}()
+			go func() {
+				<-q
+				if !mock.IsClosed() {
+					if err := mock.Close(); err != nil {
+						logger.Log("msg", fmt.Sprintf("cannot close client connection: %s", err.Error()))
+					}
+				}
+			}()
 			err = mock.HandleConnectionPhase()
 			if err != nil {
-				level.Error(logger).Log("msg", fmt.Sprintf("cannot handle connection phase of incoming client connection: %s", err.Error()))
+				logger.Log("msg", fmt.Sprintf("cannot handle connection phase of incoming new client connection: %s", err.Error()))
 				return
 			}
 			for {
 				msg, err := mock.Receive()
 				if err != nil {
-					level.Error(logger).Log("msg", fmt.Sprintf("cannot receive message from client: %s", err.Error()))
+					logger.Log("msg", fmt.Sprintf("cannot receive message from client: %s", err.Error()))
 					mock.SendError(err)
 					return
 				}
-
 				// For each incoming client connection, parse the query to identify the shard(s) involved and create a proxy for each backend involved, then send the query
 				err = mock.Process(msg, cluster, vschema)
 				if err != nil {
-					level.Error(logger).Log("msg", fmt.Sprintf("cannot process message from client: %s", err.Error()))
+					logger.Log("msg", fmt.Sprintf("cannot process message from client: %s", err.Error()))
 					mock.SendError(err)
 					return
 				}
@@ -98,8 +145,13 @@ func main() {
 					return
 				}
 			}
-		}(clientConn)
+		}(clientConn, &wg, quitChan, scopedLogger)
 	}
+
+	level.Info(logger).Log("msg", "draining active connections")
+	wg.Wait()
+	level.Info(logger).Log("msg", "all active connections have been drained, now quitting")
+	os.Exit(0)
 }
 
 func configureLogger(minimumLevel string) log.Logger {
@@ -123,4 +175,10 @@ func configureLogger(minimumLevel string) log.Logger {
 	logger = level.NewFilter(logger, levelOption)
 	logger = log.With(logger, "ts", log.DefaultTimestampUTC)
 	return logger
+}
+
+func listenForSignals(signals chan os.Signal, cancel context.CancelFunc, logger log.Logger) {
+	sig := <-signals
+	logger.Log("msg", fmt.Sprintf("received signal %s", sig.String()))
+	cancel()
 }

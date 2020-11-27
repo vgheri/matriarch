@@ -2,14 +2,14 @@ PRIORITY TODO:
 
 Features
 
-- Divide in frontend and backend: frontend manages connections, backends is PostgreSQL specific
+- Add routine that listens to signals such as SIGTERM or SIGKILL which stop accepting new connections, waits for open connections to terminate and then kills the process
+- Add connection pooling to main.go to manage frontend and backend connections
 
 Bugs
 
 TODO:
 
-- Add routine that listens to signals such as SIGTERM or SIGKILL which stop accepting new connections, waits for open connections to terminate and then kills the process
-- Add connection pooling to main.go to manage frontend and backend connections
+- Write and run tests
 - SELECT should decompose queries to see if it's possible to look for the information in the right shard for each table (today we only use the first table to select a shard)
 - Support addressing relations with the form schema.relation
 - Support `in` operator in where clause for UPDATE/DELETE/SELECT statements
@@ -18,6 +18,7 @@ TODO:
 - Implement psql commands
   - \dt
   - ...
+- Divide in frontend and backend: frontend manages connections, backends is PostgreSQL specific
 
 ## Testing
 
