@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"net"
@@ -37,12 +36,11 @@ func main() {
 
 	logger := configureLogger(options.logLevel)
 
-	ctx, cancel := context.WithCancel(context.Background())
 	// Signals management
 	signals := make(chan os.Signal, 1)
-	// quit := make(chan bool, 1)
+	quit := make(chan bool, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
-	go listenForSignals(signals, cancel, level.Warn(logger))
+	go listenForSignals(signals, quit, level.Warn(logger))
 
 	// read vschema file
 	vschema, err := readVschemaFile(options.vschemaFilePath)
@@ -73,7 +71,7 @@ func main() {
 	var quitChannels []chan bool
 	// Close the listener on quit signal and signal all goroutines processing client requests to terminate their inflight requests and then return
 	go func() {
-		<-ctx.Done()
+		<-quit
 		level.Info(logger).Log("msg", "stop accepting incoming connections")
 		if err = ln.Close(); err != nil {
 			level.Error(logger).Log("msg", fmt.Sprintf("cannot stop accepting incoming connections: %s", err.Error()))
@@ -112,6 +110,7 @@ func main() {
 				}
 				wg.Done()
 			}()
+			// Receive goroutine quit signal and close the mock
 			go func() {
 				<-q
 				if !mock.IsClosed() {
@@ -175,8 +174,8 @@ func configureLogger(minimumLevel string) log.Logger {
 	return logger
 }
 
-func listenForSignals(signals chan os.Signal, cancel context.CancelFunc, logger log.Logger) {
+func listenForSignals(signals chan os.Signal, quit chan bool, logger log.Logger) {
 	sig := <-signals
 	logger.Log("msg", fmt.Sprintf("received signal %s", sig.String()))
-	cancel()
+	quit <- true
 }
