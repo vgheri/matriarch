@@ -2,22 +2,19 @@ PRIORITY TODO:
 
 Features
 
-- ProcessMessage
-  - Split ProcessMessage into two parts: one is parsing, the other message sending
-- Create struct Proxy which has ProcessMessage and SendResult as methods
 - Divide in frontend and backend: frontend manages connections, backends is PostgreSQL specific
 
 Bugs
 
 TODO:
 
-- SELECT should decompose query to be see if it's possible to look for the information in the right shard for each table (today we only use the first table to select a shard)
-- Support addressing relations with the form catalog.schema.relation
-- Support `in` operator in where clause for UPDATE/DELETE/SELECT statements
-- Add routine that listens to signals such as SIGTERM or SIGKILL and which kills the mock
+- Add routine that listens to signals such as SIGTERM or SIGKILL which stop accepting new connections, waits for open connections to terminate and then kills the process
 - Add connection pooling to main.go to manage frontend and backend connections
-- Implement secondary indexes
+- SELECT should decompose queries to see if it's possible to look for the information in the right shard for each table (today we only use the first table to select a shard)
+- Support addressing relations with the form schema.relation
+- Support `in` operator in where clause for UPDATE/DELETE/SELECT statements
 - Implement CancelRequest statement -> `F {"Type":"CancelRequest","ProcessID":17399,"SecretKey":1755195487}`
+- Implement secondary indexes
 - Implement psql commands
   - \dt
   - ...

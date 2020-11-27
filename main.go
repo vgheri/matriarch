@@ -10,8 +10,6 @@ import (
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	"github.com/google/uuid"
-
-	"github.com/vgheri/matriarch/proxy"
 )
 
 var options struct {
@@ -75,7 +73,7 @@ func main() {
 		}
 		// each client connection lifecycle is managed in its own goroutine
 		go func(clientConn net.Conn) {
-			mock := proxy.NewMock(clientConn, scopedLogger)
+			mock := NewMock(clientConn, scopedLogger)
 			err = mock.HandleConnectionPhase()
 			if err != nil {
 				level.Error(logger).Log("msg", fmt.Sprintf("cannot handle connection phase of incoming client connection: %s", err.Error()))
@@ -90,7 +88,7 @@ func main() {
 				}
 
 				// For each incoming client connection, parse the query to identify the shard(s) involved and create a proxy for each backend involved, then send the query
-				err = Process(msg, mock, cluster, vschema, level.Debug(logger))
+				err = mock.Process(msg, cluster, vschema)
 				if err != nil {
 					level.Error(logger).Log("msg", fmt.Sprintf("cannot process message from client: %s", err.Error()))
 					mock.SendError(err)
