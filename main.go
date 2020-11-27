@@ -40,7 +40,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	// Signals management
 	signals := make(chan os.Signal, 1)
-	quit := make(chan bool, 1)
+	// quit := make(chan bool, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	go listenForSignals(signals, cancel, level.Warn(logger))
 
@@ -68,25 +68,23 @@ func main() {
 		level.Error(logger).Log("msg", fmt.Sprintf("cannot listen on port %s: %s", options.listenAddress, err.Error()))
 		os.Exit(1)
 	}
+	// Close the listener
+	var wg sync.WaitGroup
+	var quitChannels []chan bool
+	// Close the listener on quit signal and signal all goroutines processing client requests to terminate their inflight requests and then return
 	go func() {
 		<-ctx.Done()
 		level.Info(logger).Log("msg", "stop accepting incoming connections")
 		if err = ln.Close(); err != nil {
 			level.Error(logger).Log("msg", fmt.Sprintf("cannot stop accepting incoming connections: %s", err.Error()))
 		}
-		quit <- true
-	}()
-
-	level.Info(logger).Log("msg", fmt.Sprintf("Matriarch started and listening on port %s", options.listenAddress))
-
-	var wg sync.WaitGroup
-	var quitChannels []chan bool
-	go func() {
-		<-quit
 		for _, c := range quitChannels {
 			c <- true
 		}
 	}()
+
+	level.Info(logger).Log("msg", fmt.Sprintf("Matriarch started and listening on port %s", options.listenAddress))
+
 	// main control loop
 	for {
 		// wait for a new client connection
