@@ -39,6 +39,8 @@ func main() {
 	// Signals management
 	signals := make(chan os.Signal, 1)
 	quit := make(chan bool, 1)
+	defer close(signals)
+	defer close(quit)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	go listenForSignals(signals, quit, level.Warn(logger))
 
