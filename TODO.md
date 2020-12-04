@@ -1,12 +1,11 @@
-PRIORITY TODO:
+Current task:
 
-Features
+- Write tests
 
 Bugs
 
-TODO:
+Backlog:
 
-- Write and run tests
 - Expose prometheus metrics on command completion time, # of requests, connection pools etc...
 - SELECT should decompose queries to see if it's possible to look for the information in the right shard for each table (today we only use the first table to select a shard)
 - Support addressing relations with the form schema.relation

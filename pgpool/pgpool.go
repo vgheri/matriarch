@@ -1,3 +1,5 @@
+// Code taken and adapted from https://github.com/jackc/pgx/tree/master/pgxpool
+
 package pgpool
 
 import (
@@ -387,66 +389,3 @@ func (p *Pool) Exec(ctx context.Context, sql string) (*pgconn.MultiResultReader,
 
 	return c.conn.Exec(ctx, sql), nil
 }
-
-// func (p *Pool) Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
-// 	c, err := p.Acquire(ctx)
-// 	if err != nil {
-// 		return errRows{err: err}, err
-// 	}
-
-// 	rows, err := c.Query(ctx, sql, args...)
-// 	if err != nil {
-// 		c.Release()
-// 		return errRows{err: err}, err
-// 	}
-
-// 	return c.getPoolRows(rows), nil
-// }
-
-// func (p *Pool) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row {
-// 	c, err := p.Acquire(ctx)
-// 	if err != nil {
-// 		return errRow{err: err}
-// 	}
-
-// 	row := c.QueryRow(ctx, sql, args...)
-// 	return c.getPoolRow(row)
-// }
-
-// func (p *Pool) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
-// 	c, err := p.Acquire(ctx)
-// 	if err != nil {
-// 		return errBatchResults{err: err}
-// 	}
-
-// 	br := c.SendBatch(ctx, b)
-// 	return &poolBatchResults{br: br, c: c}
-// }
-
-// func (p *Pool) Begin(ctx context.Context) (pgx.Tx, error) {
-// 	return p.BeginTx(ctx, pgx.TxOptions{})
-// }
-// func (p *Pool) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error) {
-// 	c, err := p.Acquire(ctx)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	t, err := c.BeginTx(ctx, txOptions)
-// 	if err != nil {
-// 		c.Release()
-// 		return nil, err
-// 	}
-
-// 	return &Tx{t: t, c: c}, err
-// }
-
-// func (p *Pool) CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error) {
-// 	c, err := p.Acquire(ctx)
-// 	if err != nil {
-// 		return 0, err
-// 	}
-// 	defer c.Release()
-
-// 	return c.Conn().CopyFrom(ctx, tableName, columnNames, rowSrc)
-// }
