@@ -435,7 +435,10 @@ func (mock *PGMock) processInsertStmt(s *pg.InsertStmt, q QueryMessage, cluster 
 					return fmt.Errorf("cannot select destination shard for insert statement: %w", err)
 				}
 				mock.logger.Log("msg", fmt.Sprintf("shard selected: %s", target.Name))
-				res := target.Conn.Exec(context.Background(), q.String)
+				res, err := target.Conn.Exec(context.Background(), q.String)
+				if err != nil {
+					return err
+				}
 				defer res.Close()
 				results, err := res.ReadAll()
 				if err != nil {
@@ -573,7 +576,10 @@ func (mock *PGMock) processDeleteStmt(s *pg.DeleteStmt, q QueryMessage, cluster 
 		return fmt.Errorf("cannot select destination shard for delete statement: %w", err)
 	}
 	mock.logger.Log("msg", fmt.Sprintf("shard selected: %s\n", target.Name))
-	res := target.Conn.Exec(context.Background(), q.String)
+	res, err := target.Conn.Exec(context.Background(), q.String)
+	if err != nil {
+		return err
+	}
 	defer res.Close()
 	results, err := res.ReadAll()
 	if err != nil {
@@ -715,7 +721,10 @@ func (mock *PGMock) processUpdateStmt(s *pg.UpdateStmt, q QueryMessage, cluster 
 		return fmt.Errorf("cannot select destination shard for UPDATE statement: %w", err)
 	}
 	mock.logger.Log("msg", fmt.Sprintf("shard selected: %s\n", target.Name))
-	res := target.Conn.Exec(context.Background(), q.String)
+	res, err := target.Conn.Exec(context.Background(), q.String)
+	if err != nil {
+		return err
+	}
 	defer res.Close()
 	results, err := res.ReadAll()
 	if err != nil {
@@ -891,7 +900,10 @@ func (mock *PGMock) processSelectStmt(s *pg.SelectStmt, q QueryMessage, cluster 
 	}
 	mock.logger.Log("msg", fmt.Sprintf("shard selected: %s", target.Name))
 
-	res := target.Conn.Exec(context.Background(), q.String)
+	res, err := target.Conn.Exec(context.Background(), q.String)
+	if err != nil {
+		return err
+	}
 	defer res.Close()
 	results, err := res.ReadAll()
 	if err != nil {

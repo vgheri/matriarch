@@ -58,8 +58,9 @@ func main() {
 		level.Error(logger).Log("msg", fmt.Sprintf("cannot create new cluster: %s", err.Error()))
 		os.Exit(1)
 	}
-	for i, s := range cluster.Shards {
-		level.Info(logger).Log("msg", fmt.Sprintf("%d - Connected to %s - %s\n", i, s.Host, s.Name))
+	defer cluster.Shutdown()
+	for _, s := range cluster.Shards {
+		level.Info(logger).Log("msg", fmt.Sprintf("Connected to %s - %s\n", s.Host, s.Name))
 	}
 
 	// Start accepting connections from clients
@@ -79,12 +80,13 @@ func main() {
 			level.Error(logger).Log("msg", fmt.Sprintf("cannot stop accepting incoming connections: %s", err.Error()))
 		}
 		for _, c := range quitChannels {
-			c <- true
+			c <- true // TODO replace with close(c)
 		}
 	}()
 
 	level.Info(logger).Log("msg", fmt.Sprintf("Matriarch started and listening on port %s", options.listenAddress))
 
+	go cluster.Stats(level.Debug(logger))
 	// main control loop
 	for {
 		// wait for a new client connection
@@ -179,5 +181,5 @@ func configureLogger(minimumLevel string) log.Logger {
 func listenForSignals(signals chan os.Signal, quit chan bool, logger log.Logger) {
 	sig := <-signals
 	logger.Log("msg", fmt.Sprintf("received signal %s", sig.String()))
-	quit <- true
+	quit <- true // TODO replace with close(quit)
 }

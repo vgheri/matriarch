@@ -2,14 +2,12 @@ PRIORITY TODO:
 
 Features
 
-- Add routine that listens to signals such as SIGTERM or SIGKILL which stop accepting new connections, waits for open connections to terminate and then kills the process
-- Add connection pooling to main.go to manage frontend and backend connections
-
 Bugs
 
 TODO:
 
 - Write and run tests
+- Expose prometheus metrics on command completion time, # of requests, connection pools etc...
 - SELECT should decompose queries to see if it's possible to look for the information in the right shard for each table (today we only use the first table to select a shard)
 - Support addressing relations with the form schema.relation
 - Support `in` operator in where clause for UPDATE/DELETE/SELECT statements

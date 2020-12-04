@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc64"
-	"log"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/go-kit/kit/log"
 
 	"github.com/jackc/pgconn"
+	"github.com/vgheri/matriarch/pgpool"
 )
 
 type Cluster struct {
@@ -21,7 +24,7 @@ type Shard struct {
 	Name          string
 	KeyspaceStart uint64
 	KeyspaceEnd   uint64
-	Conn          *pgconn.PgConn
+	Conn          *pgpool.Pool
 }
 
 const defaultPostgreSQLPort = 5432
@@ -42,11 +45,28 @@ func NewCluster(keyspaceName string, hosts []string) (*Cluster, error) {
 	return &Cluster{Shards: shards}, nil
 }
 
-// func (c *Cluster) Run() error {
-// 	for _, shard := range c.Shards {
-// 		go shard.Proxy.Run()
-// 	}
-// }
+func (c *Cluster) Shutdown() {
+	for _, shard := range c.Shards {
+		shard.Conn.Close()
+	}
+}
+
+func (c *Cluster) Stats(logger log.Logger) {
+	ticker := time.NewTicker(10 * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			for _, shard := range c.Shards {
+				stats := shard.Conn.Stat()
+				logger.Log("shard", shard.Name, "ac", stats.AcquiredConns(),
+					"tac", stats.AcquireCount(),
+					"eac", stats.EmptyAcquireCount(),
+					"ic", stats.IdleConns(),
+					"tc", stats.TotalConns())
+			}
+		}
+	}
+}
 
 func buildShards(keyspaceName string, hosts []string) ([]*Shard, error) {
 	count := len(hosts)
@@ -122,7 +142,6 @@ func connect(shards []*Shard) error {
 		}
 		_, err = result.Close()
 		if err != nil {
-			log.Fatalln("failed reading result:", err)
 			return fmt.Errorf("error reading result from shard %s: %w", shard.Host, err)
 		}
 		if !dbAlreadyExists {
@@ -140,11 +159,11 @@ func connect(shards []*Shard) error {
 		}
 		_ = pgConn.Close(ctx)
 		connString := fmt.Sprintf("postgres://%s/%s", shard.Host, shard.Name)
-		pgConn, err = pgconn.Connect(ctx, connString)
+		pool, err := pgpool.Connect(ctx, connString)
 		if err != nil {
 			return fmt.Errorf("error trying to connect to %s/%s: %w", shard.Host, shard.Name, err)
 		}
-		shard.Conn = pgConn
+		shard.Conn = pool
 	}
 	return nil
 }
